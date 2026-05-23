@@ -1,0 +1,14 @@
+Customer Name: John Smith
+Address: 123 Main St, Reno,NV
+
+Equipment:
+- Furnace: Goodman Gm9S96, 60,000 BTU
+- Condenser: Goodman GSX14, 3 Ton
+- Coil: CAPF3636
+
+Labor Cost: $4,500
+Material Cost: $3,200
+Total Cost: $7,700
+
+Notes:
+Includes full install, permits, and startup.

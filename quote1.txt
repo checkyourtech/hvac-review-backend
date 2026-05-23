@@ -1,0 +1,25 @@
+ABC Heating & Air
+Reno, NV
+
+Customer: John Smith
+Address: 123 Main St Reno NV
+
+Equipment:
+Goodman GM9S96 Furnace
+Goodman GSX14 3 Ton Condenser
+CAPF3636 Coil
+
+Total Price: $7,700
+
+Labor: $4,500
+Materials: $3,200
+
+Includes:
+- Permit
+- Startup
+- Thermostat
+- New pad
+
+Warranty:
+10 year parts
+1 year labor
