@@ -1,15 +1,15 @@
 import os
-import smtplib
 import html
+import smtplib
+import urllib.request
 from email.message import EmailMessage
-from typing import List
+from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, HTTPException
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from serpapi import GoogleSearch
-
 
 load_dotenv()
 
@@ -20,7 +20,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 EMAIL_USER = "reviews@checkyourtechs.com"
 BUSINESS_EMAIL = "reviews@checkyourtechs.com"
 WEBSITE_URL = "https://www.checkyourtech.info"
-LOGO_URL = "https://static.wixstatic.com/media/9d7356_1bf8d4c42f3c489e92676cbe764366c5~mv2.png/v1/fill/w_496,h_372,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/file_00000000c56c71f598c3b252c7b1d746.png"
+LOGO_URL = "https://static.wixstatic.com/media/9d7356_1bf8d4c42f3c489e92676cbe76436c5~mv2.png/v1/fill/w_496,h_372,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/file_00000000c56c71f598c3b252c7b1d746.png"
 
 
 class HVACAnalysis(BaseModel):
@@ -35,6 +35,32 @@ class HVACAnalysis(BaseModel):
     red_flags: List[str]
     good_signs: List[str]
     recommendation: str
+
+
+class UploadedQuote(BaseModel):
+    fileName: Optional[str] = None
+    originalFileName: Optional[str] = None
+    downloadUrl: Optional[str] = None
+    fileUrl: Optional[str] = None
+
+
+class AnalyzeRequest(BaseModel):
+    package: str = Field(default="tier1")
+    packageName: Optional[str] = None
+
+    customer_name: str = Field(default="Website Customer")
+    customerName: Optional[str] = None
+
+    customer_email: Optional[str] = None
+    customerEmail: Optional[str] = None
+
+    contractor_1_name: str = ""
+    contractor_2_name: str = ""
+    contractor_3_name: str = ""
+    city: str = ""
+    state: str = ""
+
+    files: List[UploadedQuote]
 
 
 PACKAGE_RULES = {
@@ -85,7 +111,7 @@ def esc(value):
 def make_list(items):
     if not items:
         return "<li>No major items identified based on the submitted quote.</li>"
-    return "".join(f"<li>{esc(item)}</li>" for item in items)
+    return "\n".join([f"<li>{esc(item)}</li>" for item in items])
 
 
 def search_contractor_online(contractor_name, city, state):
@@ -128,7 +154,6 @@ def search_contractor_online(contractor_name, city, state):
                 title = item.get("title", "No title")
                 link = item.get("link", "No link")
                 snippet = item.get("snippet", "No snippet")
-
                 results_text.append(
                     f"- Title: {title}\n  Link: {link}\n  Snippet: {snippet}"
                 )
@@ -143,7 +168,8 @@ def send_review_email(customer_name, customer_email, package, file_names, analys
     email_password = os.getenv("EMAIL_APP_PASSWORD")
 
     if not email_password:
-        raise Exception("Missing EMAIL_APP_PASSWORD")
+        print("EMAIL_APP_PASSWORD missing. Skipping email send.")
+        return
 
     body = f"""
 <html>
@@ -151,90 +177,71 @@ def send_review_email(customer_name, customer_email, package, file_names, analys
 
 <div style="max-width:700px; margin:auto; background:white; border-radius:10px; overflow:hidden; border:1px solid #ddd;">
 
-    <div style="background:#1f2937; padding:25px; text-align:center;">
-        <img src="{LOGO_URL}" width="180">
-    </div>
-
-    <div style="padding:30px; color:#333;">
-
-        <h2 style="color:#111827;">NEW CHECK YOUR TECH REVIEW</h2>
-
-        <p style="line-height:1.6;">
-            <b>Customer Name:</b> {esc(customer_name)}<br>
-            <b>Customer Email:</b> {esc(customer_email)}<br>
-            <b>Selected Package:</b> {esc(package)}<br>
-            <b>Uploaded Files:</b> {esc(", ".join(file_names))}
-        </p>
-
-        <hr style="margin:25px 0;">
-
-        <h3>Project Overview</h3>
-        <p style="line-height:1.7;">{esc(analysis.project_overview)}</p>
-
-        <h3>Equipment Analysis</h3>
-        <p style="line-height:1.7;">{esc(analysis.equipment_analysis)}</p>
-
-        <h3>Missing Information</h3>
-        <p style="line-height:1.7;">{esc(analysis.missing_information)}</p>
-
-        <h3>Pricing Review</h3>
-        <p style="line-height:1.7;">{esc(analysis.pricing_review)}</p>
-
-        <h3>Installation Concerns</h3>
-        <p style="line-height:1.7;">{esc(analysis.installation_concerns)}</p>
-
-        <h3>Quote Comparison</h3>
-        <p style="line-height:1.7;">{esc(analysis.quote_comparison)}</p>
-
-        <h3>Best Quote Recommendation</h3>
-        <p style="line-height:1.7;">{esc(analysis.best_quote_recommendation)}</p>
-
-        <h3>Contractor Vetting</h3>
-        <p style="line-height:1.7;">{esc(analysis.contractor_vetting)}</p>
-
-        <h3 style="color:#dc2626;">Red Flags</h3>
-        <ul style="line-height:1.8;">
-            {make_list(analysis.red_flags)}
-        </ul>
-
-        <h3 style="color:#16a34a;">Good Signs</h3>
-        <ul style="line-height:1.8;">
-            {make_list(analysis.good_signs)}
-        </ul>
-
-        <h3>Final Recommendation</h3>
-        <p style="line-height:1.7;">{esc(analysis.recommendation)}</p>
-
-        <div style="margin-top:30px;">
-            <hr style="margin:25px 0;">
-
-            <p style="font-size:14px; color:#666; line-height:1.6;">
-                <b>DISCLAIMER:</b><br><br>
-                This review is intended to help homeowners identify potential concerns,
-                missing information, or areas that may require clarification before
-                proceeding with HVAC work.<br><br>
-
-                This review is not a substitute for an in-person inspection,
-                load calculation, or licensed engineering evaluation.
-                Customers are encouraged to compare multiple quotes and verify
-                contractor licensing, permits, insurance, equipment specifications,
-                and installation details before making a final decision.
-            </p>
-        </div>
-
-    </div>
-
-    <div style="background:#f3f4f6; padding:20px; text-align:center; font-size:14px; color:#555;">
-        <b>Check Your Tech</b><br>
-        HVAC Quote Review & Consumer Protection Services<br><br>
-
-        <a href="{WEBSITE_URL}" style="color:#2563eb; text-decoration:none;">
-        www.checkyourtech.info
-        </a>
-    </div>
-
+<div style="background:#112837; padding:25px; text-align:center;">
+<img src="{LOGO_URL}" width="180">
 </div>
 
+<div style="padding:30px; color:#333;">
+<h2 style="color:#112837;">NEW CHECK YOUR TECH REVIEW</h2>
+
+<p>
+<b>Customer Name:</b> {esc(customer_name)}<br>
+<b>Customer Email:</b> {esc(customer_email)}<br>
+<b>Selected Package:</b> {esc(package)}<br>
+<b>Uploaded Files:</b> {esc(", ".join(file_names))}
+</p>
+
+<h3>Project Overview</h3>
+<p>{esc(analysis.project_overview)}</p>
+
+<h3>Equipment Analysis</h3>
+<p>{esc(analysis.equipment_analysis)}</p>
+
+<h3>Missing Information</h3>
+<p>{esc(analysis.missing_information)}</p>
+
+<h3>Pricing Review</h3>
+<p>{esc(analysis.pricing_review)}</p>
+
+<h3>Installation Concerns</h3>
+<p>{esc(analysis.installation_concerns)}</p>
+
+<h3>Quote Comparison</h3>
+<p>{esc(analysis.quote_comparison)}</p>
+
+<h3>Best Quote Recommendation</h3>
+<p>{esc(analysis.best_quote_recommendation)}</p>
+
+<h3>Contractor Vetting</h3>
+<p>{esc(analysis.contractor_vetting)}</p>
+
+<h3 style="color:#dc2626;">Red Flags</h3>
+<ul>{make_list(analysis.red_flags)}</ul>
+
+<h3 style="color:#16a34a;">Good Signs</h3>
+<ul>{make_list(analysis.good_signs)}</ul>
+
+<h3>Final Recommendation</h3>
+<p>{esc(analysis.recommendation)}</p>
+
+<hr>
+
+<p style="font-size:14px; color:#666;">
+<b>DISCLAIMER:</b><br>
+This review is intended to help homeowners identify potential concerns,
+missing information, or areas that may require clarification before proceeding
+with HVAC work. This review is not a substitute for an in-person inspection,
+load calculation, or licensed engineering evaluation.
+</p>
+</div>
+
+<div style="background:#f3f4f6; padding:20px; text-align:center; font-size:14px; color:#555;">
+<b>Check Your Tech</b><br>
+HVAC Quote Review & Consumer Protection Services<br><br>
+<a href="{WEBSITE_URL}" style="color:#2563eb; text-decoration:none;">www.checkyourtech.info</a>
+</div>
+
+</div>
 </body>
 </html>
 """
@@ -252,18 +259,22 @@ def send_review_email(customer_name, customer_email, package, file_names, analys
 
 
 @app.post("/analyze", response_model=HVACAnalysis)
-async def analyze_hvac_quote(
-    package: str = Form(...),
-    customer_name: str = Form(...),
-    customer_email: str = Form(...),
-    contractor_1_name: str = Form(""),
-    contractor_2_name: str = Form(""),
-    contractor_3_name: str = Form(""),
-    city: str = Form(""),
-    state: str = Form(""),
-    files: List[UploadFile] = File(...)
-):
+async def analyze_hvac_quote(request: AnalyzeRequest):
+    package = request.packageName or request.package or "tier1"
     package_key = package.lower().strip()
+
+    customer_name = request.customerName or request.customer_name or "Website Customer"
+    customer_email = request.customerEmail or request.customer_email
+
+    contractor_1_name = request.contractor_1_name
+    contractor_2_name = request.contractor_2_name
+    contractor_3_name = request.contractor_3_name
+    city = request.city
+    state = request.state
+    files = request.files
+
+    if not customer_email:
+        raise HTTPException(status_code=400, detail="Customer email is required.")
 
     if package_key not in PACKAGE_RULES:
         raise HTTPException(
@@ -287,14 +298,42 @@ async def analyze_hvac_quote(
     file_names = []
 
     for index, uploaded_file in enumerate(files, start=1):
-        contents = await uploaded_file.read()
-        quote_text = contents.decode("utf-8", errors="ignore")
-        file_names.append(uploaded_file.filename)
+        file_name = uploaded_file.fileName or uploaded_file.originalFileName or f"quote{index}.pdf"
+        download_url = uploaded_file.downloadUrl
+
+        if not download_url:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing downloadUrl for {file_name}. Wix must send an HTTPS download URL."
+            )
+
+        if not (
+        download_url.startswith("https://")
+            or 
+        download_url.startswith("http://127.0.0.1")
+            or 
+        download_url.startswith("http://localhost")
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file URL for {file_name}. Expected HTTPS URL."
+            )
+
+        try:
+            with urllib.request.urlopen(download_url) as response:
+                contents = response.read()
+
+            quote_text = contents.decode("utf-8", errors="ignore")
+
+        except Exception as e:
+            quote_text = f"Could not read file contents: {str(e)}"
+
+        file_names.append(file_name)
 
         quote_blocks.append(
             f"""
 QUOTE {index}
-File Name: {uploaded_file.filename}
+File Name: {file_name}
 
 {quote_text}
 """
@@ -327,10 +366,7 @@ State: {state}
 """
                 )
 
-        if vetting_blocks:
-            contractor_vetting_results = "\n\n".join(vetting_blocks)
-        else:
-            contractor_vetting_results = """
+        contractor_vetting_results = "\n\n".join(vetting_blocks) if vetting_blocks else """
 No contractor names were provided. Contractor vetting could not be performed.
 """
     else:
@@ -415,7 +451,7 @@ Location:
 City: {city}
 State: {state}
 
-Submitted HVAC quote(s):
+Submitted HVAC Quote(s):
 {all_quotes_text}
 
 Contractor vetting search results:
