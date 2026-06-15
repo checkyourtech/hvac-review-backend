@@ -8,5 +8,5 @@ google-search-results
 requests
 python-multipart
 pypdf
-pillow
-pytesseract
+PyMuPDF
+Pillow
