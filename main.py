@@ -8,7 +8,11 @@ from email.message import EmailMessage
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
+from pathlib import Path
+import uuid
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
@@ -17,13 +21,14 @@ import fitz  # PyMuPDF
 load_dotenv()
 
 app = FastAPI(title="HVAC Quote Analyzer")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 EMAIL_USER = "reviews@checkyourtechs.com"
 BUSINESS_EMAIL = "reviews@checkyourtechs.com"
 WEBSITE_URL = "https://www.checkyourtech.info"
-LOGO_URL = "https://static.wixstatic.com/media/9d7356_1bf8d4c42f3c489e92676cbe764366c5~mv2.png/v1/fill/w_496,h_372,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/file_00000000c56c71f598c3b252c7b1d746.png"
+LOGO_URL = "/static/logo.png"
 
 
 class HVACAnalysis(BaseModel):
@@ -45,6 +50,7 @@ class UploadedQuote(BaseModel):
     originalFileName: Optional[str] = None
     downloadUrl: Optional[str] = None
     fileUrl: Optional[str] = None
+    extractedText: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -83,7 +89,198 @@ def make_list(items):
         return "<li>No major items identified.</li>"
     return "".join(f"<li>{esc(item)}</li>" for item in items)
 
+def build_report_html(analysis):
+    def section(title, body):
+        return f"""
+        <div class="card">
+            <h2>{esc(title)}</h2>
+            <p>{esc(body)}</p>
+        </div>
+        """
 
+    def list_section(title, items, empty_text):
+        return f"""
+        <div class="card">
+            <h2>{esc(title)}</h2>
+            <ul>
+                {make_list(items) if items else f"<li>{esc(empty_text)}</li>"}
+            </ul>
+        </div>
+        """
+
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Check Your Tech HVAC Quote Review</title>
+
+<style>
+body {{
+    margin: 0;
+    background: #f3f4f6;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #111827;
+}}
+
+.cyt-report {{
+    max-width: 950px;
+    margin: 30px auto;
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+}}
+
+.header {{
+    background: #111827;
+    color: white;
+    text-align: center;
+    padding: 40px 25px 32px;
+}}
+
+.header img {{
+    max-width: 170px;
+    height: auto;
+    display: block;
+    margin:0 auto 12px;
+}}
+
+.header h1 {{
+    margin: 0;
+    font-size: 32px;
+}}
+
+.subtitle {{
+    margin-top: 8px;
+    color: #d1d5db;
+    font-size: 16px;
+}}
+
+.summary {{
+    background: #ecfdf5;
+    border-left: 6px solid #2b7a2b;
+    margin: 25px;
+    padding: 20px;
+    border-radius: 10px;
+}}
+
+.summary h2 {{
+    margin-top: 0;
+}}
+
+.card {{
+    margin: 20px 25px;
+    padding: 22px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+}}
+
+.card h2 {{
+    margin-top: 0;
+    color: #111827;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 8px;
+}}
+
+.card p, .card li {{
+    font-size: 16px;
+    line-height: 1.55;
+}}
+
+ul {{
+    padding-left: 22px;
+}}
+
+.final-box {{
+    margin: 25px;
+    padding: 24px;
+    background: #f9fafb;
+    border: 2px solid #2b7a2b;
+    border-radius: 14px;
+    text-align: center;
+}}
+
+.download-btn {{
+    background: #2b7a2b;
+    color: white;
+    border: none;
+    padding: 16px 36px;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    margin-top: 18px;
+}}
+
+.disclaimer {{
+    margin: 25px;
+    font-size: 13px;
+    color: #6b7280;
+    text-align: center;
+}}
+
+@media print {{
+    .download-btn {{
+        display: none;
+    }}
+
+    body {{
+        background: white;
+    }}
+
+    .cyt-report {{
+        box-shadow: none;
+        margin: 0;
+    }}
+}}
+</style>
+</head>
+
+<body>
+<div class="cyt-report">
+
+    <div class="header">
+        <img src="{LOGO_URL}" alt="Check Your Tech Logo">
+        <h1>HVAC Quote Review</h1>
+        <p class="subtitle">Independent HVAC proposal review before you commit.</p>
+    </div>
+
+    <div class="summary">
+        <h2>Review Summary</h2>
+        <p>{esc(analysis.project_overview)}</p>
+    </div>
+
+    {section("Equipment Analysis", analysis.equipment_analysis)}
+    {section("Missing Information", analysis.missing_information)}
+    {section("Pricing Review", analysis.pricing_review)}
+    {section("Installation Concerns", analysis.installation_concerns)}
+    {section("Quote Comparison", analysis.quote_comparison)}
+    {section("Best Quote Recommendation", analysis.best_quote_recommendation)}
+    {list_section("Red Flags", analysis.red_flags, "No major red flags identified.")}
+    {list_section("Good Signs", analysis.good_signs, "No major positive items identified.")}
+    {section("Final Recommendation", analysis.recommendation)}
+
+    <div class="final-box">
+        <h2>Review Complete</h2>
+        <p>
+            Keep this report with your proposal. Before signing, ask your contractor
+            about any missing information, red flags, or unclear scope items listed above.
+        </p>
+
+        <button class="download-btn" onclick="window.print()">
+            Download / Save as PDF
+        </button>
+    </div>
+
+    <p class="disclaimer">
+        This review is for informational purposes only and does not replace a licensed contractor inspection.
+    </p>
+
+</div>
+</body>
+</html>
+"""
 def download_file(url: str) -> bytes:
     if not url:
         raise HTTPException(status_code=400, detail="Missing downloadUrl.")
@@ -279,18 +476,38 @@ HVAC Quote Review & Consumer Protection Services<br>
 
 @app.post("/analyze", response_model=HVACAnalysis)
 async def analyze_hvac_quote(request: AnalyzeRequest):
-    package_key = (request.packageName or request.package or "tier1").lower().strip()
+    raw_package = (request.packageName or request.package or "tier1").lower().strip()
+
+    package_map = {
+        "basic": "tier1",
+        "standard": "tier2",
+        "premium": "tier3",
+        "tier1": "tier1",
+        "tier2": "tier2",
+        "tier3": "tier3",
+    }
+
+    package_key = package_map.get(raw_package, raw_package)
     customer_name = request.customerName or request.customer_name or "Website Customer"
     customer_email = request.customerEmail or request.customer_email or ""
 
-    if package_key not in PACKAGE_RULES:
-        raise HTTPException(status_code=400, detail="Invalid package. Use tier1, tier2, or tier3.")
+    if package_key not in {"tier1", "tier2", "tier3"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid package."
+        )
 
     if package_key == "tier1" and len(request.files) > 1:
-        raise HTTPException(status_code=400, detail="Tier 1 only allows 1 quote upload.")
+        raise HTTPException(
+            status_code=400,
+            detail="Basic Review allows 1 quote upload."
+        )
 
-    if package_key in ["tier2", "tier3"] and len(request.files) > 3:
-        raise HTTPException(status_code=400, detail="Tier 2 and Tier 3 allow up to 3 quote uploads.")
+    if package_key in {"tier2", "tier3"} and len(request.files) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Standard and Premium allow up to 3 quote uploads."
+        )
 
     quote_blocks = []
     file_names = []
@@ -299,18 +516,23 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
         file_name = uploaded_file.fileName or uploaded_file.originalFileName or f"quote{index}.pdf"
         download_url = uploaded_file.downloadUrl or uploaded_file.fileUrl
 
-        file_bytes = download_file(download_url)
-        quote_text = extract_file_text(file_bytes, file_name)
+        if uploaded_file.extractedText:
+            quote_text = uploaded_file.extractedText
+        elif download_url:
+            file_bytes = download_file(download_url)
+            quote_text = extract_file_text(file_bytes, file_name)
+        else:
+            raise HTTPException(status_code=400, detail="Missing quote text or downloadUrl.")
 
         file_names.append(file_name)
 
         quote_blocks.append(
             f"""
-QUOTE {index}
-File Name: {file_name}
+    QUOTE {index}
+    File Name: {file_name}
 
-{quote_text}
-"""
+    {quote_text}
+    """
         )
 
     all_quotes_text = "\n\n".join(quote_blocks)
@@ -326,45 +548,70 @@ File Name: {file_name}
             {
                 "role": "system",
                 "content": f"""
-You are a professional HVAC estimator, service technician, and homeowner advocate.
+            You are a senior residential HVAC installation and service foreman with over 20 years of field experience.
 
-Review the submitted HVAC quote or quotes for a homeowner.
+Review residential HVAC proposals, estimates, and repair quotes like a homeowner handed them to you and asked: "Would you approve this?"
 
-Package scope:
-{PACKAGE_RULES[package_key]}
+Write like a real foreman talking to a homeowner, not like AI, a lawyer, or a salesman.
 
-Important:
-- Tier 1 reviews only one quote.
-- Tier 2 compares up to three quotes and recommends the best overall option.
-- Tier 3 compares up to three quotes and includes contractor vetting if data is provided.
-- Do not invent facts.
-- If something is missing, say it is missing.
-- If handwriting or OCR is unclear, state that clearly.
-- Keep the tone professional and homeowner-friendly.
-- Do not accuse contractors of dishonesty.
-- Do not guarantee savings.
+You can review:
+- full HVAC system replacements
+- furnace replacements
+- AC replacements
+- heat pump replacements
+- mini split replacements
+- compressor replacements
+- contactor replacements
+- capacitor replacements
+- fan motor repairs
+- blower motor repairs
+- control board repairs
+- refrigerant leak repairs
+- refrigerant recharge quotes
+- ductwork repairs
+- thermostat replacements
+- maintenance-related repair recommendations
 
-Look for:
-- Missing equipment model numbers
-- Missing AHRI match number
-- Missing SEER2, EER2, HSPF2, or AFUE ratings
-- Missing labor/material cost breakdown
-- Missing permit details
-- Missing ductwork scope
-- Missing electrical scope
-- Missing condensate drain details
-- Missing thermostat details
-- Missing refrigerant line set details
-- Missing refrigerant pressures
-- Missing superheat/subcooling data
-- Missing airflow/static pressure information
-- Missing warranty terms
-- Suspiciously vague pricing
-- Missing exclusions
-- Missing cleanup/disposal details
-- Missing payment schedule
-- Missing startup sheet
-"""
+For replacement quotes, focus on:
+- equipment details
+- model numbers
+- AHRI match if listed
+- warranty
+- installation scope
+- line set
+- electrical
+- condensate drain
+- thermostat
+- permits
+- startup/commissioning
+- missing information
+- pricing transparency
+- red flags
+- good signs
+- final recommendation
+
+For repair quotes, focus on:
+- diagnosis clarity
+- whether the failed part is clearly identified
+- whether testing results are shown
+- whether repair vs replacement makes sense
+- part warranty
+- labor warranty
+- refrigerant type and amount if applicable
+- whether additional failure risks were explained
+- whether the repair price is transparent
+- whether the customer should ask for a second opinion
+
+If one quote is provided, review it on its own.
+
+If two or three quotes are provided, compare them and choose a Foreman's Pick. Do not automatically choose the cheapest quote.
+
+Never invent missing information. If something is not shown, say: "I don't see that listed."
+
+Never accuse a contractor of dishonesty.
+
+Keep the review practical, homeowner-friendly, and honest.
+                """
             },
             {
                 "role": "user",
@@ -384,7 +631,7 @@ Submitted HVAC Quote(s):
 
 Contractor vetting search results:
 {contractor_vetting_results}
-"""
+                """
             }
         ],
         response_format=HVACAnalysis,
@@ -400,4 +647,198 @@ Contractor vetting search results:
         analysis=analysis
     )
 
+    print("ANALYSIS RESULT:", analysis)
     return analysis
+
+def extract_text_from_uploaded_file(filepath: str) -> str:
+    text = ""
+
+    if filepath.lower().endswith(".pdf"):
+        reader = PdfReader(filepath)
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text
+
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+@app.post("/upload")
+async def upload_file(
+    files: List[UploadFile] = File(...),
+    package: str = Form(...),
+    customer_name: str = Form(...),
+    customer_email: str = Form(...),
+):
+    print("PACKAGE RECEIVED:", package)
+    print("NUMBER OF FILES:", len(files))
+    if len(files) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="You may upload a maximum of 3 quotes."
+        )
+
+    uploaded_quotes = []
+
+    for file in files:
+        file_id = str(uuid.uuid4())
+        filename = f"{file_id}_{file.filename}"
+        filepath = UPLOAD_DIR / filename
+
+        with open(filepath, "wb") as buffer:
+            buffer.write(await file.read())
+
+        quote_text = extract_text_from_uploaded_file(str(filepath))
+
+        print("QUOTE FILE:", file.filename)
+        print("QUOTE LENGTH:", len(quote_text))
+
+        uploaded_quotes.append(
+            UploadedQuote(
+                fileName=file.filename,
+                originalFileName=file.filename,
+                downloadUrl="",
+                fileUrl="",
+                extractedText=quote_text,
+            )
+        )
+
+    request = AnalyzeRequest(
+        package=package,
+        packageName=package,
+        customerName=customer_name,
+        customer_email=customer_email,
+        customerEmail=customer_email,
+        contractor_1_name="",
+        contractor_2_name="",
+        contractor_3_name="",
+        city="",
+        state="",
+        files=uploaded_quotes,
+    )
+
+    analysis = await analyze_hvac_quote(request)
+
+    return HTMLResponse(build_report_html(analysis))
+
+
+ 
+
+@app.get("/uploads/{filename}")
+async def get_upload(filename: str):
+    return FileResponse(UPLOAD_DIR / filename)
+
+@app.get("/upload-page", response_class=HTMLResponse)
+async def upload_page():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Your HVAC Quote | Check Your Tech</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 40px;
+        }
+        .card {
+            max-width: 760px;
+            margin: auto;
+            background: white;
+            padding: 35px;
+            border-radius: 14px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+        h1, h2 {
+            text-align: center;
+            margin-top: 10px;
+            margin-bottom: 20px;
+            color: #111827;
+        }
+        p {
+            color: #374151;
+            text-align:center;
+            line-height: 1.6;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 18px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            margin-top: 6px;
+            font-size: 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+        }
+        button {
+            width: 100%;
+            margin-top: 24px;
+            padding: 14px;
+            background: #111827;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #374151;
+        }
+        .small {
+            font-size: 13px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <img
+    src="/static/logo.png"
+    alt="Check Your Tech"
+    style="
+        display:block;
+        width:260px;
+        margin:0 auto 15px auto;
+    ">
+        <h2>Upload Your HVAC Proposal</h2>
+
+        <p>
+         Get a second opinion from the people who install and service HVAC systems.
+         We'll review your proposal for pricing, equipment, missing details, and red
+         flags—before you commit.
+        </p>
+
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <label>Your Name</label>
+            <input name="customer_name" required>
+
+            <label>Email Address</label>
+            <input name="customer_email" type="email" required>
+
+            <label>Review Package</label>
+            <select name="package" required>
+                <option value="basic">In-Depth Quote Review (1 Quote)</option>
+                <option value="standard">Quote Comparison (2-3 Quotes)</option>
+            </select>
+
+            <label>Upload Quote File</label>
+            <input name="files" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" multiple required>
+
+            <p class="small">
+                By uploading, you agree that this review is for informational purposes only
+                and does not replace a licensed contractor inspection.
+            </p>
+
+            <button type="submit">Upload Quote</button>
+        </form>
+    </div>
+</body>
+</html>
+    """   
