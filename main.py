@@ -727,7 +727,7 @@ async def upload_file(
 
  
 
-@app.get("/uploads/{filename}")
+("/uploads/{filename}")
 async def get_upload(filename: str):
     return FileResponse(UPLOAD_DIR / filename)
 
