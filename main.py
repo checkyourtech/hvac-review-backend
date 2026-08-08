@@ -732,7 +732,8 @@ async def get_upload(filename: str):
     return FileResponse(UPLOAD_DIR / filename)
 
 @app.get("/upload-page", response_class=HTMLResponse)
-async def upload_page():
+async def upload_page(package: str = "basic"):
+    if package not in {"basic", "standard"}: package = "basic"
     return """
 <!DOCTYPE html>
 <html>
@@ -822,11 +823,7 @@ async def upload_page():
             <label>Email Address</label>
             <input name="customer_email" type="email" required>
 
-            <label>Review Package</label>
-            <select name="package" required>
-                <option value="basic">In-Depth Quote Review (1 Quote)</option>
-                <option value="standard">Quote Comparison (2-3 Quotes)</option>
-            </select>
+            <input type="hidden" name="package" value="{package}">
 
             <label>Upload Quote File</label>
             <input name="files" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" multiple required>
@@ -841,4 +838,4 @@ async def upload_page():
     </div>
 </body>
 </html>
-    """   
+    """.replace("{package}",package) 
