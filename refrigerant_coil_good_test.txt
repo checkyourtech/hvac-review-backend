@@ -1,0 +1,25 @@
+Customer reports poor cooling.
+
+System inspected and found low on R-410A refrigerant.
+
+Electronic leak detection identified a refrigerant leak at the evaporator coil. Leak location was confirmed with soap bubbles at the coil.
+
+Recommended repair:
+Replace evaporator coil.
+
+Scope includes:
+- new OEM-compatible evaporator coil
+- new liquid-line filter drier
+- recover remaining refrigerant
+- remove and replace evaporator coil
+- nitrogen pressure test after repair
+- evacuate system to 500 microns or less
+- verify vacuum holds before charging
+- recharge system with R-410A
+- verify system operation after repair
+
+Warranty:
+- 10-year manufacturer parts warranty on replacement coil
+- 2-year labor warranty
+
+Total repair price: $4,850

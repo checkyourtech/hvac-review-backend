@@ -177,6 +177,14 @@ For a repair quote, leave replacement_components empty unless the proposal also 
 
 Replacing an internal component such as a compressor, motor, control board, capacitor, contactor, TXV, coil component, or filter drier does not mean the outdoor unit, furnace, or air handler is being replaced.
 
+An evaporator coil or condenser coil being replaced as a repair component does not make the quote a system replacement.
+
+For a repair quote involving only an evaporator coil or condenser coil:
+- put the coil in repair_components
+- leave replacement_components empty
+
+Only use replacement_components when an entire major HVAC unit or system is being replaced.
+
 Example:
 If a compressor inside an existing condenser is being replaced, repair_components should contain "compressor" and replacement_components should remain empty.
 
@@ -244,6 +252,21 @@ Include "warranty" whenever any manufacturer or contractor warranty is mentioned
 Include "repair_vs_replace" for major repairs such as compressor, heat exchanger, evaporator coil, condenser coil, or other high-cost repairs where system age and repair economics matter.
 
 Include "pricing" whenever a repair or replacement price is provided.
+
+For refrigerant leak or evaporator/condenser coil repair quotes:
+
+Include:
+- refrigerant_system
+- warranty
+- repair_vs_replace
+- pricing
+- commissioning
+
+Only include "compressor" if the proposal actually involves compressor diagnosis, compressor repair, or compressor replacement.
+
+Only include "electrical_diagnosis" when the proposal documents or proposes investigation of an electrical problem.
+
+Do not include "compressor" or "electrical_diagnosis" simply because the system has low refrigerant, a refrigerant leak, or a leaking evaporator or condenser coil.
 
 10. confidence
 Use:
@@ -481,6 +504,281 @@ When appropriate, generate specific questions such as:
 - Given the system's age and repair cost, what would full replacement cost for comparison?
 
 Keep the final homeowner explanation practical and concise.
+""",
+
+"refrigerant_system": """
+REFRIGERANT SYSTEM AND COIL REPAIR ANALYSIS RULES
+
+Use these rules when a proposal involves:
+- refrigerant leaks
+- refrigerant recharge
+- evaporator coil replacement
+- condenser coil replacement
+- refrigerant piping repairs
+- filter drier replacement
+- leak search or leak detection
+
+DIAGNOSIS AND LEAK CONFIRMATION
+
+Do not assume a refrigerant leak has been conclusively located merely because the system is low on refrigerant.
+
+Look for documented evidence such as:
+- measured system pressures
+- documented low refrigerant charge
+- electronic leak detector findings
+- soap bubble confirmation
+- ultraviolet dye findings when applicable
+- visible oil residue
+- nitrogen pressure testing
+- identified leak location
+- documented coil or tubing damage
+
+Separate:
+- evidence that the system is low on refrigerant
+- evidence that a leak exists
+- evidence identifying the specific leak location
+
+A low refrigerant charge supports the possibility of a leak but does not by itself prove where the leak is located.
+
+When multiple pieces of evidence point to the same location, acknowledge that the diagnosis is better supported.
+
+Do not invent leak-test results that are not documented.
+
+RECHARGE-ONLY PROPOSALS
+
+HVAC refrigerant normally operates in a sealed system and is not routinely consumed during normal operation.
+
+If a proposal recommends adding a meaningful amount of refrigerant without documenting why the system is low or addressing a suspected leak, identify this as an important item to clarify.
+
+Do not automatically call a recharge-only repair improper.
+
+Possible legitimate explanations may include:
+- a previous repair
+- incomplete original charge
+- known prior refrigerant loss
+- recent equipment or piping work
+
+If the reason is not documented, recommend asking why the system is low and whether a leak search is appropriate.
+
+COIL REPLACEMENT
+
+When an evaporator or condenser coil is being replaced, evaluate:
+- whether the leak or failure location is reasonably supported
+- whether the exact replacement coil is identified
+- manufacturer parts warranty status
+- labor warranty
+- refrigerant recovery
+- filter drier replacement
+- brazing or piping work
+- pressure testing
+- evacuation
+- refrigerant recharge
+- final startup and operation verification
+
+Replacing a coil inside an existing system is a repair, not automatically a full system replacement.
+
+Do not assume that replacement of an evaporator coil means the air handler or furnace is also being replaced.
+
+FILTER DRIER
+
+A new liquid-line filter drier is normally an important part of refrigerant-system repairs that open the sealed system.
+
+If the repair opens the refrigerant circuit and no filter drier is mentioned, identify it as an item to confirm rather than automatically declaring the repair improper.
+
+PRESSURE TESTING
+
+When pressure testing is documented, give the contractor credit for including it.
+
+Look for:
+- nitrogen or another appropriate dry inert gas
+- documented test procedure when provided
+- leak verification after repair
+
+Do not invent a required pressure value unless equipment or manufacturer information establishes one.
+
+EVACUATION
+
+When evacuation is included, evaluate whether the proposal provides:
+- a vacuum target
+- micron measurement
+- decay or standing vacuum verification when documented
+
+A target below 500 microns is commonly associated with proper deep evacuation practices, but do not assume the actual final vacuum was achieved until the work is completed and documented.
+
+Do not confuse vacuum level with refrigerant pressure.
+
+REFRIGERANT CHARGE
+
+Check:
+- refrigerant type
+- quantity included in the quoted price
+- whether additional refrigerant costs extra
+- whether the final charge will be verified
+- whether charging procedures are appropriate for the equipment when documented
+
+Do not assume the number of pounds listed is the exact final charge unless the proposal or manufacturer information establishes it.
+
+If the proposal includes "up to" a certain amount of refrigerant, make that distinction clear.
+
+REFRIGERANT TYPE AND SYSTEM AGE
+
+Consider refrigerant type when evaluating repair-versus-replacement economics.
+
+Older or phased-down refrigerants may affect:
+- refrigerant cost
+- future serviceability
+- long-term repair economics
+
+Do not recommend replacement solely because a system uses an older refrigerant.
+
+Consider system age, condition, repair cost, warranty, and available replacement alternatives together.
+
+WARRANTY
+
+For coil and refrigerant-system repairs, separate:
+- manufacturer parts warranty
+- contractor labor warranty
+- refrigerant coverage
+- diagnostic or service charges
+- additional refrigerant charges
+
+Treat wording such as "may qualify", "may apply", "possibly covered", or "eligible if registered" as unverified warranty status.
+
+Do not present conditional coverage as confirmed coverage.
+
+If manufacturer coverage may apply, recommend verifying model number, serial number, registration status, and manufacturer warranty records before authorizing an expensive repair.
+
+REPAIR VS REPLACEMENT
+
+For major coil repairs, consider:
+- equipment age
+- repair price
+- refrigerant type
+- warranty coverage
+- overall system condition if documented
+- prior major repairs if known
+- condition and age of the remaining equipment
+- replacement alternative if available
+
+Do not use a rigid percentage rule.
+
+Use conclusions such as:
+- repair appears economically reasonable
+- replacement deserves comparison
+- replacement may offer better long-term value
+- insufficient information to determine
+
+PRICING AND TRANSPARENCY
+
+Evaluate the complete installed repair price, including legitimate scope such as:
+- coil or replacement component
+- refrigerant recovery
+- brazing and piping work
+- filter drier
+- nitrogen pressure testing
+- evacuation
+- refrigerant
+- startup
+- labor
+- warranty exposure
+- difficult access when documented
+
+Look for separate or reasonably identifiable pricing for:
+- replacement coil or major part
+- refrigerant and materials
+- labor
+- diagnostic or leak-search charges
+
+If the proposal gives only one flat repair price, do not automatically accuse the contractor of overcharging.
+
+Instead:
+- identify limited itemization as reduced pricing transparency
+- explain that the total installed price can still be evaluated
+- recommend asking for a parts, refrigerant, and labor breakdown on expensive repairs
+- lower confidence in conclusions about exactly where markup is occurring
+
+Do not use online wholesale equipment cost as the homeowner's expected installed price.
+
+Contractor markup, overhead, labor burden, insurance, warranty responsibility, tools, transportation, and callbacks are legitimate business costs.
+
+REGIONAL PRICING LIMITATION
+
+Unless verified regional pricing data has been provided to the analysis, do not label a repair price as high, low, overpriced, below market, or above market.
+
+Do not invent a regional price range or rely on general assumptions about what a repair "should" cost.
+
+Without verified regional pricing data:
+- evaluate whether the scope appears complete
+- evaluate pricing transparency and itemization
+- identify what parts, refrigerant, materials, and labor are included
+- explain when limited itemization makes the source of the total cost unclear
+- recommend obtaining an itemized breakdown or comparison quote when appropriate
+- state that a precise market-price comparison requires verified regional pricing data
+
+When verified regional pricing data is available from the pricing module, use that information to determine whether parts, refrigerant, labor, or the total installed price appear unusually high or low.
+
+When verified regional pricing data is NOT available:
+
+- Do not use the size of the quoted dollar amount itself as evidence that the price may be high, excessive, unreasonable, or concerning.
+- Do not recommend additional quotes merely because the total dollar amount appears large.
+- Do not imply that a specific quoted price is unusual for the market.
+- Do not compare the quoted amount to an assumed normal, average, typical, fair, or expected price.
+- A recommendation to obtain another quote must be based on a specific non-price reason, such as unclear scope, unsupported diagnosis, missing itemization, missing warranty information, or uncertainty about what work is included.
+- If discussing the quoted total, state it factually without judging its market value.
+- If appropriate, explain that verified regional pricing data would be needed to determine whether the quoted amount is competitive for the local market.
+
+LEAK DIAGNOSIS LIMITATION
+
+Do not treat low refrigerant charge, low suction pressure, poor cooling performance, or a recommendation to add refrigerant as proof that an evaporator coil, condenser coil, or other specific component is leaking.
+
+A specific refrigerant leak location should only be treated as confirmed when the proposal includes supporting evidence such as:
+- electronic leak detector findings
+- soap bubble confirmation
+- UV dye evidence
+- nitrogen pressure testing with documented leak location
+- visible oil residue consistent with a refrigerant leak
+- documented isolation testing
+- another clearly stated diagnostic method that identifies the leak location
+
+If the proposal states that the system is low on refrigerant but does not identify how the leak was located:
+- state that refrigerant loss may indicate a leak somewhere in the sealed system
+- do not assume the evaporator coil or condenser coil is the failed component
+- identify the missing leak-location evidence
+- recommend confirming the source of the leak before approving a major coil replacement
+
+If the contractor recommends replacing a coil without documented evidence locating the leak at that coil, flag the diagnosis as insufficiently supported rather than automatically calling the repair unnecessary.
+
+POSITIVE FINDINGS
+
+Give credit when the proposal clearly includes good practices such as:
+- documented leak location
+- multiple forms of leak evidence
+- refrigerant recovery
+- filter drier replacement
+- nitrogen pressure testing
+- deep evacuation
+- documented vacuum target
+- refrigerant recharge
+- final operation verification
+- clear labor warranty
+
+Do not make every report negative. Good documented scope should be acknowledged.
+
+HOMEOWNER QUESTIONS
+
+When appropriate, generate questions such as:
+- What testing confirmed the exact location of the refrigerant leak?
+- Is the evaporator or condenser coil still covered under the manufacturer's parts warranty?
+- Does this price include all refrigerant required after the repair?
+- What is the charge if more refrigerant is needed than the amount included?
+- Is a new liquid-line filter drier included?
+- Will the system be pressure tested with nitrogen after the repair?
+- What vacuum level will be achieved and documented before charging?
+- What labor warranty applies to the replacement coil?
+- Can you provide separate pricing for the coil, refrigerant/materials, and labor?
+- Given the system's age and repair cost, what would replacement cost for comparison?
+
+Keep the final homeowner explanation practical, technically grounded, and concise.
 """
 }
 
