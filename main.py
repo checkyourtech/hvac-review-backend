@@ -44,6 +44,20 @@ class HVACAnalysis(BaseModel):
     good_signs: List[str]
     recommendation: str
 
+class QuoteClassification(BaseModel):
+    quote_type: str
+    system_type: str
+    primary_scope: str
+
+    repair_components: List[str] = Field(default_factory=list)
+    replacement_components: List[str] = Field(default_factory=list)
+    proposed_equipment: List[str] = Field(default_factory=list)
+    diagnostic_evidence: List[str] = Field(default_factory=list)
+    missing_information: List[str] = Field(default_factory=list)
+
+    modules_required: List[str] = Field(default_factory=list)
+
+    confidence: str = "moderate"
 
 class UploadedQuote(BaseModel):
     fileName: Optional[str] = None
@@ -74,6 +88,415 @@ PACKAGE_RULES = {
     "tier3": "Tier 3: compare up to three HVAC quotes and include contractor vetting if contractor names are provided."
 }
 
+def classify_quotes(all_quotes_text: str) -> QuoteClassification:
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": """
+You are the quote-classification stage for Check Your Tech, an independent HVAC proposal review service.
+
+Your job is NOT to write the homeowner's final review.
+
+Your job is to inspect the submitted HVAC proposal text and classify what kind of work is being proposed so the correct technical analysis modules can be used later.
+
+Determine:
+
+1. quote_type
+Use one of:
+- repair
+- replacement
+- mixed
+- maintenance
+- ductwork
+- accessory
+- unknown
+
+2. system_type
+Examples:
+- split air conditioner
+- split heat pump
+- gas furnace
+- dual fuel
+- package unit
+- mini split
+- multi split
+- air handler
+- rooftop unit
+- boiler
+- unknown
+
+3. primary_scope
+Give a short plain-English description of the main work being proposed.
+
+4. repair_components
+List components being repaired or replaced as part of a repair.
+Examples:
+- compressor
+- capacitor
+- contactor
+- condenser fan motor
+- blower motor
+- ECM module
+- control board
+- evaporator coil
+- condenser coil
+- TXV
+- reversing valve
+- refrigerant leak
+- refrigerant recharge
+- heat exchanger
+- inducer motor
+- gas valve
+- thermostat
+
+5. replacement_components
+List only the generic equipment categories being replaced.
+
+Allowed examples:
+- outdoor unit
+- furnace
+- air handler
+- evaporator coil
+- heat pump
+- package unit
+- mini split
+- thermostat
+- ductwork
+
+Never include manufacturer names, model numbers, efficiency ratings, tonnage, or equipment descriptions in replacement_components.
+Those belong only in proposed_equipment.
+Use "evaporator coil" when the proposal lists a cased or uncased coil paired with a furnace.
+Use "air handler" only when the proposal specifically identifies an air handler or fan coil.
+Do not classify an evaporator coil as an air handler.
+Use "heat pump" only when the proposal specifically identifies the outdoor equipment as a heat pump.
+If the proposal identifies the equipment as an air conditioner, condenser, condensing unit, or AC outdoor unit, use "outdoor unit".
+Do not classify a condenser as a heat pump.
+For a repair quote, leave replacement_components empty unless the proposal also recommends replacing an entire major HVAC unit or system.
+
+Replacing an internal component such as a compressor, motor, control board, capacitor, contactor, TXV, coil component, or filter drier does not mean the outdoor unit, furnace, or air handler is being replaced.
+
+Example:
+If a compressor inside an existing condenser is being replaced, repair_components should contain "compressor" and replacement_components should remain empty.
+
+Example:
+If the proposal says "Goodman GM9S96 furnace", replacement_components should contain "furnace", not "Goodman GM9S96 furnace".
+
+6. proposed_equipment
+List the exact equipment descriptions and model numbers actually shown in the proposal.
+
+Examples:
+- Goodman GM9S96 furnace
+- Goodman GSX14 condenser
+- CAPF3636 evaporator coil
+
+Only include equipment when the proposal provides a specific manufacturer, model number, or identifiable equipment description.
+
+Do not put generic repair parts such as compressor, capacitor, contactor, filter drier, motor, TXV, or control board in proposed_equipment.
+
+If no specific equipment identification is provided, leave proposed_equipment empty.
+Do not invent model numbers.
+
+7. diagnostic_evidence
+List only diagnostic measurements, observations, fault codes, or test results actually documented in the quote.
+Do not invent evidence.
+
+8. missing_information
+List important information that appears necessary to understand the proposed work but is not shown.
+
+9. modules_required
+Choose all relevant analysis modules from:
+- compressor
+- refrigerant_system
+- electrical_diagnosis
+- motors
+- furnace_combustion
+- heat_exchanger
+- controls
+- equipment_matching
+- sizing
+- duct_airflow
+- lineset
+- electrical_scope
+- gas_scope
+- condensate
+- commissioning
+- warranty
+- repair_vs_replace
+- pricing
+- multi_quote_comparison
+
+Only include "multi_quote_comparison" when two or more separate contractor quotes are submitted.
+Never include "multi_quote_comparison" for a single quote.
+For compressor replacement repairs, always include:
+- compressor
+- refrigerant_system
+- electrical_diagnosis
+- warranty
+- repair_vs_replace
+- pricing
+
+Also include "commissioning" when the proposed repair includes refrigerant recovery, pressure testing, evacuation, vacuum targets, charging, or startup procedures.
+
+Include "warranty" whenever any manufacturer or contractor warranty is mentioned or should reasonably be checked for a major repair.
+
+Include "repair_vs_replace" for major repairs such as compressor, heat exchanger, evaporator coil, condenser coil, or other high-cost repairs where system age and repair economics matter.
+
+Include "pricing" whenever a repair or replacement price is provided.
+
+10. confidence
+Use:
+- high
+- moderate
+- low
+
+Rules:
+- Never invent model numbers, test readings, diagnoses, or scope.
+- If information is missing, say it is missing.
+- A component mentioned in a quote is not automatically proven failed.
+- Distinguish what the contractor documented from what would normally need verification.
+"""
+            },
+            {
+                "role": "user",
+                "content": f"""
+Classify the following HVAC quote or quotes:
+
+{all_quotes_text}
+"""
+            }
+        ],
+        response_format=QuoteClassification,
+    )
+
+    return completion.choices[0].message.parsed
+
+ANALYSIS_MODULES = {
+    "compressor": """
+COMPRESSOR REPAIR ANALYSIS RULES
+
+When a proposal recommends compressor replacement, review the diagnosis, repair scope, warranty, and repair-vs-replacement economics separately.
+
+DIAGNOSIS
+
+Do not assume the compressor is proven failed merely because replacement is recommended.
+
+Look for documented evidence such as:
+- correct line voltage reaching the compressor
+- contactor operation
+- capacitor test results when applicable
+- compressor winding resistance
+- continuity/open winding findings
+- winding-to-ground or insulation resistance testing
+- starting amperage or locked-rotor behavior
+- internal overload condition
+- operating pressures or other mechanical evidence when the compressor can run
+- fault codes or manufacturer diagnostic information when applicable
+
+Not every test is required in every situation.
+
+Separate:
+- what the contractor actually documented
+- what appears supported
+- what still needs verification
+
+If compressor winding resistance readings are provided, evaluate whether they appear internally consistent for the type of compressor being tested. Do not invent acceptable resistance values.
+
+If no winding-to-ground or insulation test is documented on a major compressor repair, identify it as an important item to verify before authorizing the repair.
+
+Do not describe the diagnosis as incomplete solely because this test is not listed.
+
+If the proposal includes other meaningful evidence of a compressor starting or electrical problem, acknowledge that evidence.
+
+Use wording such as:
+"The proposal documents evidence of a compressor starting problem, but I do not see an insulation-to-ground test listed. Confirming whether the compressor windings were checked to ground would strengthen the diagnosis before authorizing a major repair."
+
+Do not say that the compressor diagnosis is wrong unless the documented evidence actually contradicts it.
+
+CAPACITOR AND STARTING COMPONENTS
+
+If capacitor readings are provided, compare the measured value with the capacitor's labeled rating and tolerance when available.
+
+A weak capacitor, contactor problem, voltage problem, wiring issue, control problem, or other starting-component failure can sometimes create symptoms that resemble compressor trouble.
+
+Do not claim one of these caused the failure unless the proposal supports it.
+
+ELECTRICAL VS MECHANICAL FAILURE
+
+When possible, determine whether the documented failure appears:
+- electrically open
+- shorted
+- grounded
+- locked or mechanically unable to start
+- overheating/on internal overload
+- otherwise unclear
+
+If the proposal does not provide enough information to distinguish the failure type, say so.
+
+REPAIR SCOPE
+
+For compressor replacement, look for appropriate supporting scope such as:
+- refrigerant recovery
+- compressor replacement
+- filter drier replacement
+- brazing/refrigerant piping work
+- pressure or leak testing
+- evacuation
+- documented vacuum target when provided
+- refrigerant recharge
+- final charging and startup
+- operational verification
+
+Do not automatically call missing proposal language bad workmanship. If an important procedure is not written, identify it as something the homeowner should confirm.
+
+REFRIGERANT SYSTEM
+
+Check:
+- refrigerant type
+- refrigerant quantity included
+- whether additional refrigerant has an extra charge
+- filter drier replacement
+- pressure testing
+- evacuation
+- charging/startup procedures
+
+If compressor burnout or severe contamination is specifically documented, consider whether additional cleanup procedures may be required. Do not assume a burnout occurred unless the quote says so.
+
+WARRANTY
+
+For a compressor repair, check whether:
+- the compressor may still have manufacturer parts coverage
+- registration or serial-number verification is needed
+- labor is covered separately
+- refrigerant is covered or excluded
+- the contractor provides a labor/workmanship warranty
+
+Do not assume that a long manufacturer parts warranty also covers labor.
+
+If warranty status is unclear, recommend verifying it before authorizing a major compressor repair.
+
+WARRANTY CERTAINTY
+
+Treat conditional warranty language such as "may apply", "might be covered", "could qualify", "potentially covered", or "eligible if registered" as unverified warranty status.
+
+Never present conditional warranty coverage as confirmed coverage.
+
+If the proposal says a manufacturer warranty may apply, clearly tell the homeowner that warranty eligibility should be verified using the equipment model, serial number, registration status, and manufacturer records before the repair is authorized.
+
+Separate:
+- manufacturer parts coverage
+- contractor labor coverage
+- refrigerant coverage
+- diagnostic or service charges
+
+Do not describe a manufacturer warranty as "standard" unless that is actually established by the proposal or verified information.
+
+Example:
+If the proposal says "10-year manufacturer parts warranty may apply", say:
+"The proposal indicates that manufacturer compressor coverage may apply, but it is not confirmed. Verify the serial number and warranty status before authorizing the repair."
+
+Do not say:
+"The compressor has a 10-year manufacturer warranty."
+
+REPAIR VS REPLACEMENT
+
+Consider:
+- system age
+- refrigerant type
+- repair price
+- warranty coverage
+- prior major repairs if known
+- overall system condition if documented
+- remaining equipment age
+- replacement alternative if provided
+- labor warranty
+- likelihood of additional aging-component failures
+
+Do not use a rigid percentage rule to automatically recommend repair or replacement.
+
+Use conclusions such as:
+- repair appears economically reasonable
+- replacement deserves comparison
+- replacement may offer better long-term value
+- insufficient information to determine
+
+PRICING
+
+Evaluate the complete installed repair price, not just the internet cost of the compressor.
+
+Account for legitimate labor and scope such as:
+- refrigerant recovery
+- brazing
+- compressor removal and installation
+- filter drier
+- nitrogen/pressure testing
+- evacuation
+- refrigerant
+- startup
+- warranty exposure
+- difficult equipment access when documented
+
+A high price alone is not proof of overcharging.
+
+PARTS AND LABOR TRANSPARENCY
+
+When evaluating repair pricing, look for separate or reasonably identifiable costs for:
+- major replacement parts
+- refrigerant and materials
+- labor
+- diagnostic or service charges
+- additional required materials
+
+If the quote provides a parts and labor breakdown, use it to determine whether the apparent pricing concern comes primarily from:
+- unusually high part pricing
+- unusually high labor pricing
+- refrigerant or material markup
+- or the overall installed price
+
+If the proposal gives only one flat repair price, do not automatically accuse the contractor of overcharging.
+
+Instead:
+- identify the lack of itemization as missing pricing transparency
+- explain that the total installed price can still be reviewed
+- recommend asking for a parts-and-labor breakdown when the repair is expensive
+- lower confidence in any conclusion about exactly where the markup is occurring
+
+Do not assume the contractor's wholesale cost is the appropriate homeowner price.
+
+Account for legitimate contractor markup, overhead, warranty exposure, labor burden, tools, insurance, travel, and callbacks.
+
+However, unusually high parts or labor pricing compared with reasonable installed market expectations should be identified and explained.
+
+HOMEOWNER QUESTIONS
+
+When appropriate, generate specific questions such as:
+- What testing confirmed that the compressor itself has failed?
+- Were the compressor windings checked to ground?
+- Is the compressor still covered under the manufacturer's parts warranty?
+- Does this price include all refrigerant needed after the repair?
+- Is a new filter drier included?
+- Will the system be pressure tested and evacuated after the compressor is replaced?
+- What labor warranty applies to this repair?
+- Given the system's age and repair cost, what would full replacement cost for comparison?
+
+Keep the final homeowner explanation practical and concise.
+"""
+}
+
+def get_analysis_knowledge(classification: QuoteClassification) -> str:
+    selected_modules = []
+
+    for module_name in classification.modules_required:
+        module_text = ANALYSIS_MODULES.get(module_name)
+
+        if module_text:
+            selected_modules.append(module_text.strip())
+
+    if not selected_modules:
+        return ""
+
+    return "\n\n".join(selected_modules)
 
 @app.get("/")
 def root():
@@ -537,6 +960,12 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
 
     all_quotes_text = "\n\n".join(quote_blocks)
 
+    classification = classify_quotes(all_quotes_text)
+    print("QUOTE CLASSIFICATION:", classification.model_dump())
+
+    analysis_knowledge = get_analysis_knowledge(classification)
+    print("ANALYSIS KNOWLEDGE LENGTH:", len(analysis_knowledge))
+    
     contractor_vetting_results = "Contractor vetting is only included with Tier 3."
 
     if package_key == "tier3":
@@ -611,6 +1040,18 @@ Never invent missing information. If something is not shown, say: "I don't see t
 Never accuse a contractor of dishonesty.
 
 Keep the review practical, homeowner-friendly, and honest.
+
+SELECTED QUOTE CLASSIFICATION:
+
+{classification.model_dump_json(indent=2)}
+
+SELECTED TECHNICAL ANALYSIS KNOWLEDGE:
+
+{analysis_knowledge if analysis_knowledge else "No additional module-specific knowledge was selected."}
+
+Use the selected technical knowledge only when it applies to the submitted quote.
+The quote itself remains the source of truth.
+Do not invent measurements, diagnoses, model numbers, scope, warranties, or other facts that are not actually documented.s
                 """
             },
             {
