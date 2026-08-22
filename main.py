@@ -218,6 +218,7 @@ Choose all relevant analysis modules from:
 - compressor
 - refrigerant_system
 - electrical_diagnosis
+- electrical_controls
 - motors
 - furnace_combustion
 - heat_exchanger
@@ -267,6 +268,20 @@ Only include "compressor" if the proposal actually involves compressor diagnosis
 Only include "electrical_diagnosis" when the proposal documents or proposes investigation of an electrical problem.
 
 Do not include "compressor" or "electrical_diagnosis" simply because the system has low refrigerant, a refrigerant leak, or a leaking evaporator or condenser coil.
+
+For electrical or control repair quotes:
+
+Include:
+- electrical_controls
+- electrical_diagnosis
+
+Select electrical_controls when the proposal involves repair, replacement, diagnosis, or testing of electrical or control components such as capacitors, contactors, relays, transformers, control boards, sequencers, fuses, disconnects, breakers, control wiring, high-voltage wiring, or burned electrical connections.
+
+Use electrical_controls for component-level electrical/control repairs.
+
+Do not select electrical_controls merely because an HVAC system contains electrical components. Select it only when electrical or control work is part of the proposed repair or diagnosis.
+
+Select electrical_diagnosis whenever the proposal involves diagnosing or condemning an electrical/control component and the diagnosis depends on voltage, amperage, resistance, continuity, thermostat-call, fuse, transformer, motor, board-output, or fault-code testing.
 
 10. confidence
 Use:
@@ -399,6 +414,10 @@ Do not assume that a long manufacturer parts warranty also covers labor.
 
 If warranty status is unclear, recommend verifying it before authorizing a major compressor repair.
 
+Do not treat the absence of additional manufacturer warranty details beyond the warranty explicitly stated in the proposal as a red flag by itself.
+
+If the proposal states a parts or labor warranty, report that coverage as documented. You may recommend confirming whether any existing equipment warranty applies, but classify that as useful follow-up information rather than a red flag unless there is evidence that valid warranty coverage is being ignored, misrepresented, or contradicted.
+
 WARRANTY CERTAINTY
 
 Treat conditional warranty language such as "may apply", "might be covered", "could qualify", "potentially covered", or "eligible if registered" as unverified warranty status.
@@ -406,6 +425,8 @@ Treat conditional warranty language such as "may apply", "might be covered", "co
 Never present conditional warranty coverage as confirmed coverage.
 
 If the proposal says a manufacturer warranty may apply, clearly tell the homeowner that warranty eligibility should be verified using the equipment model, serial number, registration status, and manufacturer records before the repair is authorized.
+
+EMAIL_APP_PASSWORD="" python -c "import asyncio; from main import AnalyzeRequest, UploadedQuote, analyze_hvac_quote; r=AnalyzeRequest(customerName='Test Customer', customerEmail='test@example.com', city='Reno', state='NV', files=[UploadedQuote(fileName='electrical_compressor_good_test.txt', extractedText=open('electrical_compressor_good_test.txt').read())]); a=asyncio.run(analyze_hvac_quote(r)); print(a.model_dump_json(indent=2))"
 
 Separate:
 - manufacturer parts coverage
@@ -689,14 +710,23 @@ Look for separate or reasonably identifiable pricing for:
 - labor
 - diagnostic or leak-search charges
 
-If the proposal gives only one flat repair price, do not automatically accuse the contractor of overcharging.
+If the proposal gives only one flat repair price, do not automatically treat the contractor or repair as unreasonable based on that alone.
 
-Instead:
-- identify limited itemization as reduced pricing transparency
-- explain that the total installed price can still be evaluated
-- recommend asking for a parts, refrigerant, and labor breakdown on expensive repairs
-- lower confidence in conclusions about exactly where markup is occurring
+However, itemized or reasonably identifiable pricing is preferred for transparency, especially on major refrigerant-system repairs.
 
+When pricing is not itemized:
+- identify the lack of itemization as reduced pricing transparency
+- explain that the total installed price can still be evaluated for scope completeness
+- recommend asking for a breakdown of major parts, refrigerant/materials, labor, and diagnostic or leak-search charges
+- do not claim that any individual component, labor charge, or markup is excessive unless the proposal provides enough information to support that conclusion
+- do not make lack of itemization a red flag by itself
+- lower confidence in conclusions about exactly where the quoted cost is coming from
+
+When a flat-rate or lump-sum repair price is not itemized, do not combine the size of the total price with the lack of itemization to create a red flag unless verified regional pricing data or another specific pricing issue supports that conclusion.
+
+Do not use wording such as "high repair cost with no itemized breakdown" when the only known facts are the total price and lack of itemization.
+
+Instead, describe the issue as limited pricing transparency and recommend requesting an itemized or reasonably identifiable breakdown.
 Do not use online wholesale equipment cost as the homeowner's expected installed price.
 
 Contractor markup, overhead, labor burden, insurance, warranty responsibility, tools, transportation, and callbacks are legitimate business costs.
@@ -779,7 +809,986 @@ When appropriate, generate questions such as:
 - Given the system's age and repair cost, what would replacement cost for comparison?
 
 Keep the final homeowner explanation practical, technically grounded, and concise.
-"""
+""",
+
+    "electrical_controls": """
+ELECTRICAL / CONTROL REPAIR ANALYSIS RULES
+
+When a proposal recommends an electrical or control repair, evaluate the documented diagnosis, the component being replaced, and whether the proposed repair is supported by the information provided.
+
+COMMON COMPONENTS
+
+Electrical/control repairs may include:
+- run capacitor
+- dual run capacitor
+- start capacitor
+- hard-start kit
+- contactor
+- relay
+- transformer
+- control board
+- defrost board
+- fan control board
+- sequencer
+- time-delay relay
+- pressure switch
+- temperature switch
+- fuse
+- disconnect
+- breaker
+- low-voltage wiring
+- high-voltage wiring
+- burned or loose electrical connections
+
+DIAGNOSIS
+
+Do not assume that a failed electrical component proves another major component has failed.
+
+Examples:
+- a burned contactor does not by itself prove the compressor is bad
+- a blown fuse does not by itself identify the cause of the electrical fault
+- a tripped breaker does not by itself prove an HVAC component has failed
+- a failed capacitor does not automatically prove the motor or compressor it serves is damaged
+- a failed transformer does not by itself establish what caused the transformer to fail
+
+Look for documented diagnostic evidence when applicable, such as:
+- measured capacitance compared with the capacitor rating and tolerance
+- incoming and outgoing r motor or inducer assembly replacement proposals,
+evaluate whether the documented evidence reasonably supports failure of the
+inducer itself.
+
+Do not assume an inducer motor is defective merely because:
+- the furnace does not heat
+- the inducer does not run
+- a pressure-switch fault is present
+- ignition does not begin
+- the furnace has a draft-rvoltage readings
+- control-voltage readings
+- amperage readings
+- resistance or continuity testing
+- burned, pitted, or damaged electrical contacts
+- loose or overheated wiring
+- visible electrical damage
+- fuse test results
+- board fault codes or diagnostic LEDs
+- evidence of a short circuit or grounded component
+
+Not every test is required for every repair.
+
+CONTROL BOARD REPAIRS
+
+For a control board replacement, focus primarily on whether the documented diagnostic evidence reasonably supports condemning the board.
+
+Relevant evidence may include thermostat call verification, transformer and fuse checks, proper control voltage, board inputs and outputs, fault codes or diagnostic LEDs, blower motor or controlled-component testing, and other testing appropriate to the reported failure.
+
+Do not require every one of these tests. Evaluate whether the testing documented in the proposal is sufficient to reasonably support the diagnosis.
+
+Do not treat the absence of an exact replacement control-board model or part number as a red flag by itself. Residential repair proposals often do not list the replacement board part number.
+
+Avoid generic statements such as "there is no guarantee the new board will fix the problem." Instead, explain specifically what diagnostic evidence supports the board diagnosis and what important verification, if any, is missing.
+
+BLOWER MOTOR AND ECM REPAIRS
+
+For blower motor or ECM motor replacement, do not treat "blower not running" by itself as proof that the motor has failed.
+
+Look for documented evidence such as:
+- proper line voltage supplied to the blower motor or ECM module
+- proper low-voltage or control command to the motor/module
+- verification of thermostat or control-board fan command when relevant
+- motor/module diagnostic testing
+- resistance or winding testing when applicable to the motor type
+- confirmation that wiring, harnesses, plugs, and connectors are intact
+- confirmation that the blower wheel is not mechanically seized or obstructed
+- verification that the control board is actually commanding blower operation
+- manufacturer diagnostic codes or test procedures when documented
+- differentiation between ECM module failure and motor failure when applicable
+
+Do not require every test for every blower repair. Evaluate whether the documented evidence reasonably supports the proposed failure.
+
+If the proposal only states that the blower does not run or that the motor is "bad" without supporting diagnostic evidence:
+- identify the blower diagnosis as insufficiently supported
+- do not assume the replacement motor will correct the problem
+- recommend confirming power, control signal, wiring, and motor/module operation before authorizing replacement
+- do not invent a control-board failure, thermostat failure, wiring failure, or other cause
+
+If the proposal documents proper power and control inputs but the blower motor or ECM module fails to operate correctly, treat that as meaningful support for the diagnosis.
+
+For ECM systems, distinguish when possible between:
+- motor failure
+- ECM/module failure
+- missing control command
+- power-supply problem
+- wiring or harness problem
+- mechanical blower-wheel problem
+
+Do not claim one of these caused the failure unless the proposal supports it.
+
+REPAIR SCOPE
+
+For blower or ECM replacement, look for appropriate scope when applicable, such as:
+- correct replacement motor/module specification
+- proper mounting and blower-wheel installation
+- wiring and connector verification
+- airflow or speed-setting configuration when applicable
+- verification of blower operation after repair
+- verification of heating and cooling operation when relevant
+
+Do not criticize, emphasize, or recommend follow-up solely because the proposal does not list the exact replacement blower motor, ECM module, model number, or part number.
+
+If the proposal documents a well-supported blower/ECM diagnosis and states that an OEM-compatible or otherwise compatible replacement will be installed, do not treat the missing replacement part number as a concern by itself.
+
+Only discuss replacement-part compatibility when the proposal contains conflicting equipment information, an obviously questionable substitution, or other documented facts that create a specific compatibility concern.
+
+PRICING
+
+Follow the existing repair pricing and transparency rules.
+
+A flat-rate blower repair price is not proof of overcharging.
+
+If pricing is not itemized, identify reduced pricing transparency without calling the repair overpriced unless verified regional pricing data supports that conclusion.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact replacement part number or model number as a red flag by itself for a normal residential repair quote.
+
+Do not treat the absence of separate parts and labor pricing as a red flag by itself. Many HVAC contractors use flat-rate repair pricing.
+
+For control board repair proposals, do not criticize, emphasize, or recommend follow-up solely because the proposal lacks:
+- an exact replacement board model or part number
+- separate parts and labor pricing
+- warranty language
+
+
+INDUCER MOTOR / COMBUSTION DRAFT REPAIRS
+
+For furnace draft inducer motor or inducer assembly replacement proposals,
+evaluate whether the documented evidence reasonably supports failure of the
+inducer itself.
+
+Do not assume an inducer motor is defective merely because:
+- the furnace does not heat
+- the inducer does not run
+- a pressure-switch fault is present
+- ignition does not begin
+- the furnace has a draft-related fault code
+
+These symptoms can have multiple causes.
+
+DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+- proper line voltage supplied to the inducer during a call for heat
+- control-board output or inducer command verification
+- inducer amperage measurements
+- motor winding or resistance testing
+- evidence that the inducer motor is seized, noisy, damaged, or not rotating
+- inspection of the inducer wheel
+- pressure-switch operation or draft-pressure measurements
+- venting or combustion-air restriction inspection
+- condensate drainage inspection on condensing furnaces
+- wiring and connector inspection
+- relevant furnace fault codes used together with supporting testing
+
+Not every test is required for every diagnosis.
+
+Evaluate whether the documented testing logically separates an actual inducer
+motor failure from another problem that could prevent inducer operation or
+proper draft.
+
+Do not invent test results that are not documented in the proposal.
+
+If the proposal merely states that the inducer is "bad" or needs replacement
+without documenting supporting diagnostic evidence, identify the diagnosis as
+insufficiently supported and recommend obtaining clarification about how the
+inducer failure was confirmed.
+
+REPAIR SCOPE
+
+For inducer motor or inducer assembly replacement, appropriate scope may
+include, when applicable:
+- removal and replacement of the inducer motor or assembly
+- inspection or replacement of applicable gaskets or seals
+- verification of wiring and electrical connections
+- verification of proper inducer operation
+- confirmation that the pressure switch proves draft
+- furnace operational testing through a complete heating cycle
+
+Do not require every scope item when it is not applicable.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact replacement inducer model or part number
+as a red flag by itself.
+
+Do not treat bundled or flat-rate parts-and-labor pricing as evidence of
+overcharging by itself.
+
+Focus primarily on whether the documented diagnostic evidence supports the
+recommended repair and whether the proposed scope is reasonable.
+
+
+Do not mention these omissions in equipment_analysis, pricing_review, installation_concerns, red_flags, or recommendation unless the missing information materially affects whether the repair is technically justified.
+
+Keep the analysis focused primarily on whether the documented electrical diagnostic evidence reasonably supports the control board diagnosis.
+
+Do not treat missing warranty language as a red flag by itself unless warranty coverage is especially important to the repair decision or the proposal makes a specific warranty claim that needs verification.
+
+Distinguish between:
+- information that is useful to ask for
+- information that materially affects whether the diagnosis or repair is justified
+- information that is merely not listed on a normal repair proposal
+
+Red flags should focus on material issues such as unsupported diagnosis, contradictory scope, missing critical testing, unsafe or incomplete repair procedures, or other information that could meaningfully affect the homeowner's decision.
+
+Separate:
+- what the contractor actually documented
+- what the documented evidence supports
+- what remains uncertain
+
+Do not invent electrical measurements or failure causes that are not stated in the proposal.
+
+UNDERLYING CAUSE
+
+Distinguish between the failed component and the condition that may have caused it to fail.
+
+If an electrical component appears damaged but the proposal does not identify why it failed:
+- do not automatically assume another component caused the failure
+- identify the missing diagnostic information when it is important
+- recommend further diagnosis only when the missing information materially affects the repair decision
+
+A simple component failure does not always require an extensive root-cause investigation. Keep recommendations proportional to the repair.
+
+REPAIR SCOPE
+
+For electrical/control repairs, look for appropriate scope when applicable, such as:
+- removal and replacement of the failed component
+- correct replacement rating or specification
+- repair of damaged terminals or wiring
+- verification of proper voltage
+- verification of operating amperage when relevant
+- confirmation that the controlled component operates correctly after the repair
+- system operational verification
+- labor or parts warranty information
+
+Do not call missing proposal language bad workmanship unless the missing information materially affects the homeowner's ability to evaluate the repair.
+
+PRICING
+
+Follow the regional pricing limitation rules.
+
+Without verified regional pricing data:
+- do not call the repair high, low, overpriced, cheap, fair, or unusually expensive
+- do not describe the price as reasonable, unreasonable, appropriate, competitive, acceptable, good, bad, justified, or any similar judgment of price or value
+- if verified regional pricing data is unavailable, explicitly state that the price cannot be judged from the available information
+- evaluate pricing transparency and itemization instead
+- identify what parts, labor, materials, or diagnostic charges are included when stated
+- recommend another quote only for a specific non-price reason
+
+POSITIVE FINDINGS
+
+Give credit when the proposal documents good practices such as:
+- actual electrical measurements
+- clear identification of the failed component
+- correct component specifications
+- repair of burned or damaged wiring
+- post-repair voltage or amperage verification
+- operational testing after repair
+- clear warranty coverage
+
+PRESSURE SWITCH / DRAFT PROVING REPAIRS
+
+For furnace pressure-switch replacement proposals, evaluate whether the
+documented evidence reasonably supports failure of the pressure switch itself.
+
+Do not assume the pressure switch is defective merely because:
+- the furnace does not heat
+- the pressure switch does not close
+- a pressure-switch fault code is present
+- ignition does not begin
+- the inducer is running
+
+These conditions do not by themselves prove a failed pressure switch.
+
+DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+- verification that the inducer operates properly
+- draft or pressure measurement
+- comparison of measured draft to the pressure-switch rating
+- pressure-switch continuity or proving behavior
+- inspection of pressure tubing and pressure ports
+- verification that tubing or ports are not blocked, cracked, loose, or damaged
+- inspection for vent or combustion-air restriction
+- inspection for condensate or drainage problems when applicable
+- verification of wiring and electrical connections
+
+Do not require every test for every repair.
+
+The important question is whether the documented testing reasonably isolates
+the pressure switch itself as the failed component.
+
+If the proposal only states "bad pressure switch" or recommends replacement
+without supporting diagnostic evidence, identify the diagnosis as insufficiently
+supported.
+
+Do not invent missing measurements or tests.
+
+Do not assume a pressure-switch fault code proves the switch itself failed.
+
+REPAIR SCOPE
+
+For pressure-switch replacement, appropriate scope may include:
+- removal and replacement of the pressure switch
+- reconnection of tubing and wiring
+- verification of proper draft proving
+- furnace operational testing through a complete heating cycle
+
+Do not require every scope item when it is not applicable.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact replacement pressure-switch model or part
+number as a red flag by itself.
+
+Do not treat bundled or flat-rate parts-and-labor pricing as evidence of
+overcharging by itself.
+
+Keep the analysis focused primarily on whether the documented diagnostic
+evidence supports replacement of the pressure switch and whether the proposed
+repair is reasonable.
+
+
+Keep the final homeowner explanation practical, technically grounded, and concise.
+
+IGNITER_REPAIR_LOGIC =
+HOT SURFACE IGNITER / IGNITION REPAIRS
+
+For furnace hot-surface igniter or ignition-component replacement proposals,
+evaluate whether the documented evidence reasonably supports failure of the
+igniter itself.
+
+Do not assume an igniter is defective merely because:
+- the furnace does not heat
+- ignition does not occur
+- the burners do not light
+- an ignition-related fault code is present
+- the igniter does not glow
+
+These symptoms can have multiple causes.
+
+DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+- verification that the furnace reaches the ignition stage of the sequence
+- verification that the control board supplies proper voltage to the igniter
+- igniter resistance or continuity testing
+- evidence that the igniter is electrically open
+- visual evidence of a cracked, broken, burned, or damaged igniter
+- verification of wiring and electrical connections
+- confirmation that upstream safeties or controls are not preventing ignition
+
+Do not require every test for every repair.
+
+The important question is whether the documented testing reasonably isolates
+the igniter itself as the failed component.
+
+If the proposal only states "bad igniter", "bad hot surface igniter", or
+recommends igniter replacement without supporting diagnostic evidence,
+identify the diagnosis as insufficiently supported.
+
+Do not invent missing measurements or tests.
+
+Separate:
+- what the contractor actually documented
+- what that evidence supports
+- what remains uncertain
+
+REPAIR SCOPE
+
+For igniter replacement proposals, reasonable scope may include, when applicable:
+- removal and replacement of the failed igniter
+- inspection of wiring and electrical connections
+- verification of proper igniter operation
+- verification that ignition occurs correctly
+- furnace operational testing through a complete heating cycle
+
+Do not require every scope item when it is not applicable.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact replacement igniter model or part number
+as a red flag by itself.
+
+Do not treat bundled or flat-rate parts-and-labor pricing as evidence of
+overcharging by itself.
+
+Focus primarily on whether the documented diagnostic evidence supports the
+recommended repair and whether the proposed scope is reasonable.
+
+FLAME SENSOR / FLAME PROVING REPAIRS
+
+For furnace flame-sensor replacement proposals, evaluate whether the documented
+evidence reasonably supports failure of the flame sensor itself.
+
+Do not assume the flame sensor is defective merely because:
+- the burners ignite and then shut off
+- the furnace locks out after ignition
+- a flame-related fault code is present
+- flame is not proven
+- the furnace cycles repeatedly
+
+These symptoms can have multiple causes.
+
+DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+- verification that the burners ignite normally
+- flame-signal microamp measurement
+- comparison of measured flame signal to manufacturer requirements when documented
+- inspection of the flame sensor for contamination, oxidation, cracking, or damage
+- verification that the flame sensor is properly positioned in the burner flame
+- cleaning of the flame sensor followed by retesting
+- verification of flame-sensor wiring and electrical connections
+- verification of proper furnace grounding
+- inspection of burner flame quality when relevant
+- confirmation that the control board is receiving or responding to the flame-proving signal
+
+Do not require every test for every repair.
+
+The important question is whether the documented testing reasonably isolates
+the flame sensor itself as the cause of the flame-proving problem.
+
+A burner-lighting-then-shutting-off symptom is consistent with a flame-proving
+problem, but it is NOT sufficient evidence by itself that the flame sensor has failed.
+
+Do not describe the flame-sensor diagnosis as:
+- well-supported
+- confirmed
+- justified
+- reasonable to proceed with
+unless the proposal documents actual diagnostic evidence that isolates the
+flame sensor or flame-sensing circuit.
+
+If no flame-signal measurement, sensor inspection, cleaning/retest result,
+grounding verification, wiring verification, or other meaningful flame-proving
+test is documented, treat the diagnosis as insufficiently supported.
+
+In that situation:
+- add a red flag for insufficient diagnostic evidence
+- explain that the symptom alone does not prove a failed flame sensor
+- recommend asking what testing confirmed the flame sensor itself requires replacement
+- do not recommend proceeding with the repair based solely on the symptom
+
+When symptoms are consistent with a flame-proving problem but the proposal does
+not document testing that isolates the flame sensor itself, describe the diagnosis
+as plausible or consistent with the symptoms, not as well-supported, confirmed,
+or proven.
+
+Use language such as:
+"The symptoms are consistent with a flame-proving problem, but the quote does
+not document enough testing to confirm that the flame sensor itself has failed."
+
+If the proposal only states "bad flame sensor" or recommends flame-sensor
+replacement without supporting diagnostic evidence, identify the diagnosis
+as insufficiently supported.
+
+Do not invent missing flame-signal measurements, test results, or observations.
+
+Separate:
+- what the contractor actually documented
+- what that evidence supports
+- what remains uncertain
+
+REPAIR SCOPE
+
+For flame-sensor replacement proposals, reasonable scope may include, when applicable:
+- removal and replacement of the flame sensor
+- inspection of wiring and electrical connections
+- verification of proper flame-sensor positioning
+- verification of flame signal after repair
+- furnace operational testing through a complete heating cycle
+
+Do not require every scope item when it is not applicable.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact flame-sensor model or part number as a red flag by itself.
+
+Do not treat bundled or flat-rate parts-and-labor pricing as evidence of overcharging by itself.
+
+Focus primarily on whether the documented diagnostic evidence supports replacement
+of the flame sensor and whether the proposed repair scope is reasonable.
+
+REFRIGERANT LEAK / LOW CHARGE REPAIRS
+
+For proposals involving low refrigerant, refrigerant recharge, leak repair,
+or refrigerant-related cooling problems, evaluate two separate questions:
+
+1. Does the documented evidence reasonably support that the system is low on refrigerant?
+2. If the system is low, does the proposed repair reasonably address why the refrigerant was lost?
+
+Do not assume a system is low on refrigerant merely because:
+- the system is not cooling well
+- suction pressure is low
+- the evaporator is icing
+- the suction line is not cold
+- temperature split is poor
+- a technician states that the system is "low"
+- refrigerant was previously added
+
+These conditions can have multiple causes.
+
+LOW-CHARGE DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+- documented superheat and/or subcooling measurements
+- comparison of measured values to manufacturer charging requirements
+- suction and liquid pressure readings when used with appropriate temperature measurements
+- indoor and outdoor temperature conditions
+- verification of proper airflow before evaluating refrigerant charge
+- verification that the evaporator and condenser coils are reasonably clean
+- verification that the indoor and outdoor fans are operating properly
+- documented refrigerant weight added or recovered
+- other manufacturer-approved charging or diagnostic procedures
+
+Do not require every measurement for every system.
+
+A pressure reading by itself is generally not enough to prove low refrigerant.
+Evaluate whether the documented measurements, operating conditions, and system
+type reasonably support the diagnosis.
+
+Do not invent missing pressure, temperature, superheat, subcooling, airflow,
+or charging data.
+
+Low suction or evaporator pressure can also result from insufficient indoor airflow
+and does not by itself prove that the system is undercharged.
+
+Possible airflow-related causes may include, when supported by the proposal:
+- dirty or restricted air filter
+- dirty or restricted evaporator coil
+- incorrect blower speed
+- failing or underperforming indoor blower
+- closed or restricted supply or return airflow
+- duct restrictions
+- excessive static pressure
+
+If low suction pressure is documented without adequate airflow verification, do not
+describe low refrigerant charge as confirmed solely from the pressure reading.
+
+Evaluate refrigerant charge only after considering whether airflow conditions could
+reasonably explain the observed refrigeration pressures and temperatures.
+
+LEAK / REFRIGERANT LOSS
+
+If the proposal documents that the system is actually low on refrigerant,
+do not automatically assume the location or cause of the refrigerant loss.
+
+Relevant leak evidence may include, when applicable:
+- electronic leak detector findings
+- soap-bubble confirmation
+- UV dye evidence
+- nitrogen pressure testing
+- documented oil residue at a leak location
+- isolation testing
+- visibly damaged refrigerant components
+- other documented leak-location methods
+
+Separate:
+- evidence that the system is low on refrigerant
+- evidence that refrigerant is leaking
+- evidence identifying the actual leak location
+
+Do not describe a specific coil, fitting, line set, valve, or other component
+as leaking unless the proposal documents evidence that reasonably supports
+that location.
+
+RECHARGE-ONLY PROPOSALS
+
+A recharge-only proposal can restore cooling temporarily, but it does not by
+itself correct the cause of refrigerant loss.
+
+If a system is documented to be low and the proposal only adds refrigerant:
+- explain that the recharge may restore operation
+- identify whether a leak search is included
+- if no leak search is included, explain that the underlying source of refrigerant loss remains unresolved
+- do not claim the recharge permanently repairs the system
+
+Do not automatically call a recharge-only proposal improper.
+A customer may knowingly choose a temporary recharge, particularly on an older
+system or when leak repair is being deferred.
+
+The important question is whether the proposal clearly represents what the
+recharge does and does not accomplish.
+
+If the quote claims the system is low without adequate diagnostic evidence:
+- identify the low-charge diagnosis as insufficiently supported
+- do not treat the stated refrigerant quantity as proof of the diagnosis
+- recommend asking what measurements confirmed the low charge
+
+If the quote documents low charge but provides no leak investigation:
+- distinguish this from an unsupported low-charge diagnosis
+- explain that the system may indeed be low, but the cause of refrigerant loss has not been identified
+- recommend asking whether leak detection or further diagnosis is appropriate
+
+REFRIGERANT TYPE AND QUANTITY
+
+Use refrigerant type, charge amount, and added refrigerant quantity when they
+are documented.
+
+Do not invent refrigerant type or charge quantity.
+
+Do not automatically treat a missing refrigerant type or exact quantity as a
+red flag if those details are not necessary to evaluate the repair.
+
+However, if refrigerant type or quantity materially affects whether the proposed
+work is technically appropriate, identify it as useful information to confirm.
+
+Do not assume that an exact factory charge, lineset adjustment, or additional
+charge is required unless the proposal documents the equipment and relevant
+conditions needed to evaluate it.
+
+REPAIR SCOPE
+
+For refrigerant-system repairs, reasonable scope may include, when applicable:
+- leak detection
+- recovery of refrigerant
+- repair or replacement of the leaking component
+- nitrogen pressure testing
+- evacuation
+- dehydration to an appropriate vacuum level
+- refrigerant charging
+- verification of system operation
+- superheat and/or subcooling verification
+- temperature and airflow verification
+
+Do not require every scope item for every repair.
+
+For a sealed-system repair that opens the refrigerant circuit, evaluate whether
+the proposal includes reasonable procedures for pressure testing, evacuation,
+recharging, and operational verification when applicable.
+
+Do not invent requirements that are not relevant to the actual repair.
+
+PRICING
+
+Follow the existing repair pricing and regional-pricing rules.
+
+Do not treat a bundled refrigerant repair price as evidence of overcharging by itself.
+
+Do not assume refrigerant pricing is unfair solely because refrigerant is expensive.
+
+If verified regional pricing is unavailable, do not make unsupported claims that
+the refrigerant or repair price is high, low, cheap, fair, or excessive.
+
+POSITIVE FINDINGS
+
+Give credit when the proposal documents useful practices such as:
+- actual refrigerant diagnostic measurements
+- airflow verification before charge evaluation
+- documented leak-location evidence
+- nitrogen pressure testing
+- evacuation procedures
+- documented refrigerant type and quantity
+- post-repair charging verification
+- system operational testing
+- clear warranty coverage
+
+Keep the final homeowner explanation practical, technically grounded, and concise.
+
+METERING DEVICE / TXV / PISTON REPAIRS
+
+For proposals involving a TXV, piston, fixed-orifice metering device, or suspected
+refrigerant restriction, evaluate whether the documented evidence reasonably
+supports failure or restriction of the metering device itself.
+
+Do not assume a TXV or piston is restricted merely because:
+- suction pressure is low
+- superheat is high
+- the evaporator is cold
+- the evaporator is icing
+- cooling capacity is poor
+- the system is not cooling
+- a technician states that the TXV is bad
+
+These symptoms can have multiple causes.
+
+DIAGNOSTIC EVIDENCE
+
+Relevant evidence may include, when applicable:
+- superheat measurement
+- subcooling measurement
+- suction and liquid pressure readings
+- indoor and outdoor operating temperatures
+- verification of proper indoor airflow
+- verification that the evaporator coil is clean
+- verification of proper refrigerant charge
+- liquid-line temperature measurements
+- temperature drop across the filter drier
+- inspection for a restricted or damaged liquid line
+- TXV sensing-bulb position and mounting verification
+- sensing-bulb insulation when applicable
+- external equalizer-line inspection when applicable
+- evidence of frost or temperature change at a restriction point
+- manufacturer diagnostic procedures
+- other testing that reasonably isolates the metering device
+
+Do not require every test for every system.
+
+LOW SUCTION AND HIGH SUPERHEAT
+
+Low suction pressure combined with high superheat does not by itself prove a
+restricted TXV or piston.
+
+Possible causes may also include:
+- low refrigerant charge
+- restricted filter drier
+- liquid-line restriction
+- insufficient refrigerant feeding from another cause
+- airflow problems
+- evaporator-load problems
+- improperly mounted or insulated TXV sensing bulb
+- damaged or restricted TXV equalizer line
+- other refrigerant-system conditions
+
+Evaluate whether the documented testing reasonably distinguishes among these
+possible causes.
+
+Do not describe the metering device as failed, restricted, stuck, or defective
+unless the documented evidence reasonably supports that conclusion.
+
+TXV-SPECIFIC EVALUATION
+
+When a TXV is involved, useful evidence may include:
+- sensing-bulb mounting and condition
+- sensing-bulb temperature influence
+- external equalizer condition when applicable
+- inlet liquid condition
+- outlet/suction operating conditions
+- response of the valve to changing load or bulb temperature when documented
+- evidence that adequate liquid refrigerant is reaching the valve
+
+Do not invent TXV response tests or observations that are not documented.
+
+PISTON / FIXED-ORIFICE SYSTEMS
+
+For piston or fixed-orifice systems, do not apply TXV-specific diagnostic
+requirements.
+
+Evaluate the metering device using the documented operating conditions,
+manufacturer charging method, superheat, pressures, temperatures, airflow,
+and restriction evidence when applicable.
+
+FILTER DRIER / LIQUID-LINE RESTRICTIONS
+
+A restricted filter drier or liquid-line restriction can produce symptoms that
+may resemble a restricted metering device.
+
+If a TXV or piston is condemned without reasonable evaluation of an obvious
+upstream restriction possibility, identify the diagnosis as insufficiently
+isolated when that information is material to the repair decision.
+
+Do not require filter-drier temperature-drop testing when the proposal already
+contains other convincing evidence that isolates the metering device.
+
+REPAIR SCOPE
+
+For metering-device replacement, reasonable scope may include, when applicable:
+- refrigerant recovery
+- replacement of the TXV, piston, or metering device
+- replacement of the liquid-line filter drier
+- inspection or correction of sensing-bulb mounting
+- nitrogen pressure testing
+- evacuation
+- refrigerant recharge
+- charging verification
+- superheat and/or subcooling verification
+- operational testing
+
+Do not require every scope item when it is not applicable.
+
+For repairs that open the sealed refrigerant circuit, evaluate whether the scope
+includes reasonable pressure testing, evacuation, recharge, and post-repair
+verification.
+
+PROPOSAL DETAIL LIMITS
+
+Do not treat the absence of an exact replacement TXV, piston, or metering-device
+part number as a red flag by itself.
+
+Do not treat bundled or flat-rate parts-and-labor pricing as proof of
+overcharging.
+
+Focus primarily on whether the documented diagnostic evidence actually supports
+the metering-device diagnosis and whether the repair scope is reasonable.
+
+POSITIVE FINDINGS
+
+Give credit when the proposal documents:
+- actual refrigerant measurements
+- airflow verification
+- confirmation of proper refrigerant charge
+- restriction testing
+- sensing-bulb or equalizer inspection when relevant
+- filter-drier evaluation when relevant
+- pressure testing and evacuation
+- post-repair charging verification
+- system operational testing
+- clear warranty coverage
+
+Keep the final homeowner explanation practical, technically grounded, and concise.
+
+AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW
+
+Evaluate whether an HVAC proposal involving poor airflow, poor cooling or
+heating performance, frozen evaporator coils, abnormal refrigerant pressures,
+temperature problems, blower concerns, or duct concerns is supported by
+reasonable airflow diagnostics.
+
+CORE DIAGNOSTIC PRINCIPLE
+
+Airflow problems can create symptoms that resemble refrigerant-system
+problems.
+
+Low suction pressure, low evaporator saturation temperature, coil icing,
+poor cooling capacity, and abnormal temperature split do not by themselves
+prove that a system is low on refrigerant.
+
+Before treating refrigerant charge as the cause, consider whether adequate
+airflow across the evaporator has been reasonably established.
+
+AIRFLOW DIAGNOSTIC EVIDENCE
+
+Relevant diagnostic evidence may include, when applicable:
+
+- condition and cleanliness of the air filter
+- evaporator coil cleanliness
+- indoor blower operation
+- blower speed or airflow configuration
+- supply and return restrictions
+- closed or obstructed registers
+- duct restrictions, collapsed ductwork, or disconnected ductwork
+- total external static pressure
+- supply static pressure
+- return static pressure
+- manufacturer airflow tables or fan-performance data
+- measured airflow or reasonable airflow verification
+- temperature rise in heating
+- temperature split in cooling
+- evidence of proper system airflow before evaluating refrigerant charge
+
+Do not require every measurement for every diagnosis.
+
+STATIC PRESSURE
+
+Static-pressure measurements can provide useful evidence of airflow
+restriction.
+
+When static pressure is documented, evaluate it against the equipment's
+rated or allowable external static pressure when that information is
+available.
+
+Do not invent manufacturer static-pressure limits if they are not provided.
+
+High external static pressure may indicate airflow restriction but does not
+by itself identify the exact restriction.
+
+Possible causes may include:
+
+- dirty or restrictive filter
+- dirty evaporator coil
+- undersized return duct
+- undersized supply duct
+- closed dampers or registers
+- restrictive grilles
+- collapsed or damaged ductwork
+- improper blower configuration
+
+LOW AIRFLOW VS LOW REFRIGERANT
+
+Low evaporator airflow can reduce evaporator load and produce low suction
+pressure.
+
+Therefore:
+
+LOW SUCTION PRESSURE ALONE DOES NOT PROVE LOW REFRIGERANT CHARGE.
+
+When a proposal recommends adding refrigerant primarily because suction
+pressure is low, check whether airflow was reasonably verified.
+
+Appropriate refrigerant diagnosis may also require superheat, subcooling,
+temperature conditions, equipment charging method, and other applicable
+diagnostic information.
+
+Do not automatically conclude that low suction pressure is caused by an
+airflow problem either. The evidence must support the diagnosis.
+
+BLOWER DIAGNOSIS
+
+If blower replacement or repair is recommended, useful supporting evidence
+may include:
+
+- supply voltage
+- control signal
+- capacitor testing when applicable
+- motor amperage
+- motor winding or electrical testing when applicable
+- ECM diagnostic information when applicable
+- blower wheel condition
+- evidence of mechanical obstruction
+- confirmation of proper speed configuration
+
+Do not require tests that do not apply to the specific motor type.
+
+DUCTWORK
+
+If duct modification or replacement is recommended, look for evidence
+supporting the claimed airflow problem.
+
+Relevant evidence may include:
+
+- static-pressure measurements
+- visible damaged, collapsed, disconnected, or restricted ductwork
+- airflow measurements
+- duct sizing observations
+- excessive return or supply restriction
+- room-to-room airflow problems
+
+Do not assume duct replacement is justified merely because airflow is poor.
+
+POSITIVE FINDINGS
+
+Give appropriate credit when the proposal documents useful practices such as:
+
+- airflow verified before refrigerant diagnosis
+- filter inspected
+- evaporator coil inspected
+- blower operation verified
+- blower speed verified
+- static pressure measured
+- duct restrictions investigated
+- manufacturer airflow requirements considered
+- airflow corrected before refrigerant charge was evaluated
+- post-repair airflow or system operation verified
+
+HOMEOWNER-FACING REVIEW
+
+Explain airflow concerns in practical terms.
+
+Do not tell the homeowner that refrigerant charge, ductwork, blower,
+evaporator coil, or another component is definitely the problem unless the
+documented evidence reasonably supports that conclusion.
+
+Distinguish between:
+
+- a confirmed problem
+- evidence suggesting a problem
+- missing diagnostic information
+
+The goal is to identify whether the contractor's proposed diagnosis is
+reasonably supported, not to diagnose the HVAC system remotely.
+
+
+""",
 }
 
 def get_analysis_knowledge(classification: QuoteClassification) -> str:
@@ -1264,10 +2273,10 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
     analysis_knowledge = get_analysis_knowledge(classification)
     print("ANALYSIS KNOWLEDGE LENGTH:", len(analysis_knowledge))
     
-    contractor_vetting_results = "Contractor vetting is only included with Tier 3."
+    contractor_vetting_results = ""
 
     if package_key == "tier3":
-        contractor_vetting_results = "Contractor vetting placeholder: online contractor search can be added here."
+     contractor_vetting_results = "Contractor vetting placeholder: online contractor search ..."
 
     completion = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
@@ -1317,6 +2326,50 @@ For replacement quotes, focus on:
 - good signs
 - final recommendation
 
+EQUIPMENT MATCH VERIFICATION:
+Do not describe proposed furnace, condenser, evaporator coil, heat pump, or air-handler combinations as a confirmed "good match," "matched system," "compatible system," or verified efficiency combination unless the proposal provides sufficient supporting evidence.
+
+If an AHRI reference number, matched-system certificate, or verified manufacturer combination is not provided:
+- state that the equipment is presented as a complete system
+- do not claim the combination is AHRI matched or that rated efficiency has been verified
+- recommend confirming the AHRI matched-system reference when applicable
+- distinguish apparent model compatibility from verified rated-system performance
+
+Do not add general product praise such as "well-regarded," "known for durability," "known for performance," or similar marketing-style statements unless specifically documented in the proposal.
+
+Base equipment comments on quoted model numbers, documented specifications, warranty information, and verified matching information only.
+
+Do not use manufacturer or brand reputation as a good sign, red flag, or basis for recommending a proposal. Statements such as "recognized in the industry," "reputable brand," "trusted manufacturer," "well-known brand," or similar brand commentary are not useful quote-analysis evidence unless directly relevant documentation is provided in the proposal.
+
+Good signs must come from concrete proposal details such as documented equipment specifications, warranty coverage, permits, commissioning/startup procedures, installation scope, diagnostic evidence, or verified equipment matching.
+
+DOCUMENTED FACTS AND EXTERNAL KNOWLEDGE RULES
+
+Base the customer-facing analysis on information documented in the submitted quote.
+
+Do not supply or assume:
+- manufacturer warranty terms not stated in the quote
+- equipment reliability or durability claims
+- typical manufacturer coverage
+- contractor reputation
+- licensing, insurance, complaint, or review status
+- rebates, tax credits, or incentives
+- efficiency ratings not documented in the quote
+
+If information is not documented, describe it as something the customer may want to confirm rather than supplying the missing information yourself.
+
+Do not treat the absence of contractor licensing, insurance, reviews, or reputation information from a proposal as evidence of a problem with the contractor. When contractor vetting has not actually been performed, simply recommend verification if appropriate.
+
+CONTRACTOR VETTING SEPARATION
+
+Do not evaluate contractor licensing, insurance, reputation, reviews, complaints, or business credibility from the contents of the proposal unless the submitted document explicitly makes a claim directly relevant to the quote analysis.
+
+Do not list missing contractor licensing, insurance, reviews, or reputation information as missing information, a red flag, a good sign, or part of the final recommendation.
+
+Contractor vetting is a separate process from technical quote analysis and must not be inferred from the proposal.
+
+When identifying good signs, describe the documented fact without adding subjective praise. Example: say "The proposal includes permitting" rather than "The permit shows professionalism."
+
 For repair quotes, focus on:
 - diagnosis clarity
 - whether the failed part is clearly identified
@@ -1330,6 +2383,35 @@ For repair quotes, focus on:
 - whether the customer should ask for a second opinion
 
 If one quote is provided, review it on its own.
+
+MULTI-COMPONENT REPAIR CLARITY
+
+When a repair quote includes more than one proposed repair or component replacement, evaluate each proposed repair separately based on the evidence documented in the quote.
+
+If one repair is supported but another is not:
+- clearly state which repair is supported by the documented evidence
+- clearly state which additional repair is not yet supported by the documented evidence
+- do not imply that the entire quote is unsupported merely because one component lacks sufficient diagnostic evidence
+- do not allow a supported minor repair to automatically validate a major additional repair
+- recommend confirming the unsupported portion before authorizing it
+
+Use clear homeowner-facing language such as:
+"The capacitor failure is supported by the documented measurements. The compressor replacement is not yet supported by the testing shown in the proposal."
+
+Base this distinction only on the evidence documented in the submitted quote.
+
+PRICING LANGUAGE RULES
+
+A listed scope of work is not the same as an itemized price breakdown.
+
+Only describe pricing as itemized or transparent when the proposal actually provides separate prices for relevant parts, labor, materials, diagnostic charges, or other cost components.
+
+If verified regional pricing data is not available:
+- do not describe the quoted price as fair, reasonable, unreasonable, competitive, acceptable, appropriate, high, low, cheap, expensive, overpriced, or similar
+- do not recommend approving or rejecting a quote based on the quoted price itself
+- state that the quoted total can be identified, but its local market competitiveness cannot be determined
+- evaluate scope completeness and pricing transparency separately from price level
+- do not claim the price is itemized merely because the scope of work lists multiple tasks or components
 
 If two or three quotes are provided, compare them and choose a Foreman's Pick. Do not automatically choose the cheapest quote.
 
@@ -1368,8 +2450,7 @@ State: {request.state}
 Submitted HVAC Quote(s):
 {all_quotes_text}
 
-Contractor vetting search results:
-{contractor_vetting_results}
+{"Contractor vetting search results:" + chr(10) + contractor_vetting_results if package_key == "tier3" else ""}
                 """
             }
         ],
