@@ -1788,6 +1788,7 @@ The goal is to identify whether the contractor's proposed diagnosis is
 reasonably supported, not to diagnose the HVAC system remotely.
 
 
+
 """,
 }
 
@@ -1820,23 +1821,131 @@ def make_list(items):
     return "".join(f"<li>{esc(item)}</li>" for item in items)
 
 def build_report_html(analysis):
-    def section(title, body):
+    def clean(value):
+        return str(value or "").strip()
+
+    def clean_items(items):
+        if not items:
+            return []
+        return [clean(item) for item in items if clean(item)]
+
+    def section(title, body, css_class="card"):
+        body = clean(body)
+        if not body:
+            return ""
+
         return f"""
-        <div class="card">
+        <div class="{css_class}">
             <h2>{esc(title)}</h2>
             <p>{esc(body)}</p>
         </div>
         """
 
-    def list_section(title, items, empty_text):
+    def list_section(title, items, empty_text="", css_class="card"):
+        items = clean_items(items)
+
+        if not items and not clean(empty_text):
+            return ""
+
+        if items:
+            body = make_list(items)
+        else:
+            body = f"<li>{esc(empty_text)}</li>"
+
         return f"""
-        <div class="card">
+        <div class="{css_class}">
             <h2>{esc(title)}</h2>
             <ul>
-                {make_list(items) if items else f"<li>{esc(empty_text)}</li>"}
+                {body}
             </ul>
         </div>
         """
+
+    recommendation = clean(analysis.recommendation)
+    recommendation_lower = recommendation.lower()
+
+    red_flags = clean_items(analysis.red_flags)
+    good_signs = clean_items(analysis.good_signs)
+
+    # Customer-facing verdict
+    positive_phrases = [
+        "recommend proceeding",
+        "recommend moving forward",
+        "move forward with",
+        "proceeding with this repair",
+        "proceeding with this quote",
+        "appears reasonable",
+        "appears solid",
+    ]
+
+    caution_phrases = [
+        "second opinion",
+        "further diagnostics",
+        "additional diagnostics",
+        "before approving",
+        "before proceeding",
+        "more information",
+        "clarification",
+        "cannot confirm",
+    ]
+
+    if any(phrase in recommendation_lower for phrase in positive_phrases) and not red_flags:
+        verdict = "PROCEED"
+        verdict_class = "verdict-good"
+        support_label = "Strong"
+        verdict_explanation = (
+            "The documented findings support the proposed work, and no major red flags "
+            "were identified in the submitted proposal."
+        )
+    elif red_flags or any(phrase in recommendation_lower for phrase in caution_phrases):
+        verdict = "REVIEW BEFORE APPROVING"
+        verdict_class = "verdict-caution"
+        support_label = "Needs Clarification"
+        verdict_explanation = (
+            "The proposal may be reasonable, but there are items that should be clarified "
+            "before you authorize the work."
+        )
+    else:
+        verdict = "REVIEW FINDINGS"
+        verdict_class = "verdict-neutral"
+        support_label = "Moderate"
+        verdict_explanation = (
+            "The proposal contains useful information, but the findings below should be "
+            "reviewed before making a final decision."
+        )
+
+    missing_information = clean(analysis.missing_information)
+    installation_concerns = clean(analysis.installation_concerns)
+    quote_comparison = clean(analysis.quote_comparison)
+    best_quote = clean(analysis.best_quote_recommendation)
+    pricing_review = clean(analysis.pricing_review)
+    equipment_analysis = clean(analysis.equipment_analysis)
+    project_overview = clean(analysis.project_overview)
+
+    if not missing_information:
+        missing_information = (
+            "No important missing information was identified that appears likely to change "
+            "the recommendation."
+        )
+
+    if not installation_concerns:
+        installation_concerns = (
+            "No significant installation or repair-scope concerns were identified in the "
+            "submitted proposal."
+        )
+
+    # Plain-English consumer takeaway
+    if recommendation:
+        plain_english = recommendation
+    elif not red_flags:
+        plain_english = (
+            "The proposal appears technically supported by the information provided, and "
+            "no major concerns were identified."
+        )
+    else:
+        plain_english = (
+            "The proposal contains items that deserve clarification before you approve the work."
+        )
 
     return f"""
 <!DOCTYPE html>
@@ -1873,7 +1982,7 @@ body {{
     max-width: 170px;
     height: auto;
     display: block;
-    margin:0 auto 12px;
+    margin: 0 auto 12px;
 }}
 
 .header h1 {{
@@ -1891,12 +2000,71 @@ body {{
     background: #ecfdf5;
     border-left: 6px solid #2b7a2b;
     margin: 25px;
-    padding: 20px;
+    padding: 22px;
     border-radius: 10px;
 }}
 
 .summary h2 {{
     margin-top: 0;
+}}
+
+.verdict {{
+    margin: 20px 25px;
+    padding: 24px;
+    border-radius: 14px;
+    border: 2px solid;
+}}
+
+.verdict-good {{
+    background: #ecfdf5;
+    border-color: #15803d;
+}}
+
+.verdict-caution {{
+    background: #fff7ed;
+    border-color: #c2410c;
+}}
+
+.verdict-neutral {{
+    background: #eff6ff;
+    border-color: #2563eb;
+}}
+
+.verdict-title {{
+    font-size: 13px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}}
+
+.verdict-main {{
+    font-size: 27px;
+    font-weight: 800;
+    margin-bottom: 12px;
+}}
+
+.verdict-grid {{
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+}}
+
+.verdict-stat {{
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 9px;
+    padding: 10px 14px;
+    min-width: 155px;
+}}
+
+.verdict-stat strong {{
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: #4b5563;
+    margin-bottom: 3px;
 }}
 
 .card {{
@@ -1914,13 +2082,48 @@ body {{
     padding-bottom: 8px;
 }}
 
-.card p, .card li {{
+.card p,
+.card li {{
     font-size: 16px;
     line-height: 1.55;
 }}
 
 ul {{
     padding-left: 22px;
+}}
+
+.plain-english {{
+    margin: 20px 25px;
+    padding: 22px;
+    border-radius: 12px;
+    background: #f0f9ff;
+    border-left: 6px solid #0369a1;
+}}
+
+.plain-english h2 {{
+    margin-top: 0;
+}}
+
+.plain-english p {{
+    font-size: 17px;
+    line-height: 1.6;
+}}
+
+.bottom-line {{
+    margin: 25px;
+    padding: 24px;
+    background: #f9fafb;
+    border: 2px solid #2b7a2b;
+    border-radius: 14px;
+}}
+
+.bottom-line h2 {{
+    margin-top: 0;
+}}
+
+.bottom-line p {{
+    font-size: 17px;
+    line-height: 1.6;
 }}
 
 .final-box {{
@@ -1978,24 +2181,80 @@ ul {{
 
     <div class="summary">
         <h2>Review Summary</h2>
-        <p>{esc(analysis.project_overview)}</p>
+        <p>{esc(project_overview)}</p>
     </div>
 
-    {section("Equipment Analysis", analysis.equipment_analysis)}
-    {section("Missing Information", analysis.missing_information)}
-    {section("Pricing Review", analysis.pricing_review)}
-    {section("Installation Concerns", analysis.installation_concerns)}
-    {section("Quote Comparison", analysis.quote_comparison)}
-    {section("Best Quote Recommendation", analysis.best_quote_recommendation)}
-    {list_section("Red Flags", analysis.red_flags, "No major red flags identified.")}
-    {list_section("Good Signs", analysis.good_signs, "No major positive items identified.")}
-    {section("Final Recommendation", analysis.recommendation)}
+    <div class="verdict {verdict_class}">
+        <div class="verdict-title">Check Your Tech Recommendation</div>
+        <div class="verdict-main">{esc(verdict)}</div>
+
+        <p>{esc(verdict_explanation)}</p>
+
+        <div class="verdict-grid">
+            <div class="verdict-stat">
+                <strong>Diagnostic Support</strong>
+                {esc(support_label)}
+            </div>
+
+            <div class="verdict-stat">
+                <strong>Major Red Flags</strong>
+                {len(red_flags)}
+            </div>
+
+            <div class="verdict-stat">
+                <strong>Positive Findings</strong>
+                {len(good_signs)}
+            </div>
+        </div>
+    </div>
+
+    <div class="plain-english">
+        <h2>What This Means for You</h2>
+        <p>{esc(plain_english)}</p>
+    </div>
+
+    {section("Does the Diagnosis Make Sense?", equipment_analysis)}
+
+    {section(
+        "Important Missing Information",
+        missing_information
+    )}
+
+    {section("Price & Value Review", pricing_review)}
+
+    {section(
+        "Installation / Repair Concerns",
+        installation_concerns
+    )}
+
+    {section("Quote Comparison", quote_comparison) if quote_comparison else ""}
+
+    {section("Best Quote Recommendation", best_quote) if best_quote else ""}
+
+    {list_section(
+        "Red Flags",
+        red_flags,
+        "No major red flags were identified in the submitted proposal."
+    )}
+
+    {list_section(
+        "Good Signs",
+        good_signs,
+        "No major positive findings were specifically documented."
+    )}
+
+    <div class="bottom-line">
+        <h2>Bottom Line</h2>
+        <p>{esc(recommendation or verdict_explanation)}</p>
+    </div>
 
     <div class="final-box">
         <h2>Review Complete</h2>
+
         <p>
             Keep this report with your proposal. Before signing, ask your contractor
-            about any missing information, red flags, or unclear scope items listed above.
+            about any important missing information, red flags, or unclear scope items
+            identified above.
         </p>
 
         <button class="download-btn" onclick="window.print()">
@@ -2003,195 +2262,32 @@ ul {{
         </button>
     </div>
 
-    <p class="disclaimer">
-        This review is for informational purposes only and does not replace a licensed contractor inspection.
-    </p>
+    <div class="disclaimer">
+        This review is for informational purposes only and does not replace an
+        on-site inspection by a licensed HVAC contractor.
+    </div>
 
 </div>
 </body>
 </html>
 """
-def download_file(url: str) -> bytes:
-    if not url:
-        raise HTTPException(status_code=400, detail="Missing downloadUrl.")
-
-    if not (
-        url.startswith("https://")
-        or url.startswith("http://127.0.0.1")
-        or url.startswith("http://localhost")
-    ):
-        raise HTTPException(status_code=400, detail="Invalid file URL. Expected HTTPS URL.")
-
-    with urllib.request.urlopen(url) as response:
-        return response.read()
 
 
-def extract_pdf_text(file_bytes: bytes) -> str:
-    text = ""
-
-    try:
-        reader = PdfReader(io.BytesIO(file_bytes))
-        for page in reader.pages:
-            page_text = page.extract_text() or ""
-            text += page_text + "\n"
-    except Exception as e:
-        text += f"\nPDF text extraction failed: {str(e)}\n"
-
-    return text.strip()
-
-
-def pdf_pages_to_images(file_bytes: bytes, max_pages: int = 3) -> List[bytes]:
-    images = []
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-
-    for page_index in range(min(len(doc), max_pages)):
-        page = doc[page_index]
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-        images.append(pix.tobytes("png"))
-
-    return images
-
-
-def image_to_data_url(image_bytes: bytes, mime_type: str = "image/png") -> str:
-    encoded = base64.b64encode(image_bytes).decode("utf-8")
-    return f"data:{mime_type};base64,{encoded}"
-
-
-def ocr_image(image_bytes: bytes, file_name: str = "uploaded image") -> str:
-    data_url = image_to_data_url(image_bytes)
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You extract readable text from HVAC quotes, invoices, proposals, handwritten estimates, equipment labels, and contractor documents. Return only the extracted text. If text is unclear, say what appears unclear."
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Extract all readable quote/proposal text from this image: {file_name}"
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_url}
-                    }
-                ]
-            }
-        ]
-    )
-
-    return response.choices[0].message.content or ""
-
-
-def extract_file_text(file_bytes: bytes, file_name: str) -> str:
-    lower_name = file_name.lower()
-
-    if lower_name.endswith(".pdf"):
-        text = extract_pdf_text(file_bytes)
-
-        if len(text.strip()) > 100:
-            return text
-
-        ocr_text = []
-        try:
-            page_images = pdf_pages_to_images(file_bytes)
-            for i, img in enumerate(page_images, start=1):
-                ocr_text.append(f"--- OCR PAGE {i} ---\n{ocr_image(img, file_name)}")
-            return "\n\n".join(ocr_text)
-        except Exception as e:
-            return f"Could not extract readable PDF text or OCR image pages. Error: {str(e)}"
-
-    if lower_name.endswith((".jpg", ".jpeg", ".png", ".webp")):
-        return ocr_image(file_bytes, file_name)
-
-    try:
-        return file_bytes.decode("utf-8", errors="ignore")
-    except Exception as e:
-        return f"Could not read file contents: {str(e)}"
-
-
-def send_review_email(customer_name, customer_email, package_key, file_names, analysis: HVACAnalysis):
+def send_review_email(
+    customer_name,
+    customer_email,
+    package_key,
+    file_names,
+    analysis,
+):
     email_password = os.getenv("EMAIL_APP_PASSWORD")
 
     if not email_password:
         print("EMAIL_APP_PASSWORD missing. Skipping email send.")
         return
 
-    body = f"""
-<html>
-<body style="font-family: Arial, sans-serif; background-color:#f4f4f4; padding:20px;">
-<div style="max-width:700px; margin:auto; background:white; border-radius:10px; overflow:hidden; border:1px solid #ddd;">
-
-<div style="background:#1f2937; padding:25px; text-align:center;">
-<img src="{LOGO_URL}" width="180">
-</div>
-
-<div style="padding:30px; color:#333;">
-<h2 style="color:#111827;">New Check Your Tech Review</h2>
-
-<p>
-<b>Customer Name:</b> {esc(customer_name)}<br>
-<b>Customer Email:</b> {esc(customer_email)}<br>
-<b>Package:</b> {esc(package_key)}<br>
-<b>Uploaded Files:</b> {esc(", ".join(file_names))}
-</p>
-
-<h3>Project Overview</h3>
-<p>{esc(analysis.project_overview)}</p>
-
-<h3>Equipment Analysis</h3>
-<p>{esc(analysis.equipment_analysis)}</p>
-
-<h3>Missing Information</h3>
-<p>{esc(analysis.missing_information)}</p>
-
-<h3>Pricing Review</h3>
-<p>{esc(analysis.pricing_review)}</p>
-
-<h3>Installation Concerns</h3>
-<p>{esc(analysis.installation_concerns)}</p>
-
-<h3>Quote Comparison</h3>
-<p>{esc(analysis.quote_comparison)}</p>
-
-<h3>Best Quote Recommendation</h3>
-<p>{esc(analysis.best_quote_recommendation)}</p>
-
-<h3>Contractor Vetting</h3>
-<p>{esc(analysis.contractor_vetting)}</p>
-
-<h3 style="color:#dc2626;">Red Flags</h3>
-<ul>{make_list(analysis.red_flags)}</ul>
-
-<h3 style="color:#16a34a;">Good Signs</h3>
-<ul>{make_list(analysis.good_signs)}</ul>
-
-<h3>Final Recommendation</h3>
-<p>{esc(analysis.recommendation)}</p>
-
-<hr>
-<p style="font-size:14px; color:#666;">
-<b>Disclaimer:</b><br>
-This review is intended to help homeowners identify potential concerns, missing information, or areas that may require clarification before proceeding with HVAC work.
-<br><br>
-This review is not a substitute for an in-person inspection, load calculation, or licensed engineering evaluation.
-</p>
-</div>
-
-<div style="background:#f3f4f6; padding:20px; text-align:center; font-size:14px; color:#555;">
-<b>Check Your Tech</b><br>
-HVAC Quote Review & Consumer Protection Services<br>
-<a href="{WEBSITE_URL}" style="color:#2563eb;">www.checkyourtech.info</a>
-</div>
-
-</div>
-</body>
-</html>
-"""
-
+    body = build_report_html(analysis)
+    
     msg = EmailMessage()
     msg["Subject"] = f"New HVAC Quote Review - {customer_name}"
     msg["From"] = EMAIL_USER
