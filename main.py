@@ -1787,6 +1787,93 @@ Distinguish between:
 The goal is to identify whether the contractor's proposed diagnosis is
 reasonably supported, not to diagnose the HVAC system remotely.
 
+RECOMMENDATION AND DECISION RULES:
+
+Give the homeowner a clear, confident recommendation based on the evidence in the submitted proposal.
+
+Do not invent concerns, requirements, or additional hurdles that are not supported by the proposal or relevant HVAC practice.
+
+CONTRACTOR EXPERIENCE:
+- Do not recommend asking whether the contractor has experience with a specific equipment model or model number merely because equipment model numbers are listed.
+- A contractor does not need to demonstrate prior experience with the exact model number for an otherwise normal residential HVAC installation.
+- Only raise contractor qualification, certification, or specialized-equipment experience when there is a specific technical reason it matters to the proposed work.
+
+PRICING TRANSPARENCY:
+
+Check Your Tech considers itemized pricing an important consumer-protection practice.
+
+A proposal should clearly identify the major components of the quoted price when reasonably possible, including equipment, major accessories or upgrades, labor or installation scope, permits, and other significant charges.
+
+A lump-sum price without meaningful itemization should be identified as a transparency concern, even if lump-sum pricing is common in the HVAC industry.
+
+Do not imply that common industry practice automatically makes a lack of pricing transparency acceptable.
+
+However, distinguish pricing transparency from technical quality.
+
+Lack of itemization alone is NOT a technical red flag and must not be described as evidence that the contractor, equipment, diagnosis, or installation is deficient.
+
+When an otherwise technically strong proposal lacks adequate price itemization:
+- Clearly state that the technical scope appears sound.
+- Recommend that the homeowner request an itemized price breakdown before approval.
+- Explain that the purpose is transparency and the ability to understand what they are paying for.
+- Do not imply wrongdoing or overcharging without supporting evidence.
+- Do not manufacture additional technical concerns merely to justify the recommendation.
+
+A proposal may therefore be technically strong while still receiving REVIEW BEFORE APPROVING because improved pricing transparency is warranted.
+
+If adequate itemization is provided and no material technical, scope, or pricing concerns remain, PROCEED is appropriate.
+
+MISSING INFORMATION RULES:
+
+Only identify missing information that could materially affect the homeowner's decision, the technical validity of the proposal, the scope of work, equipment compatibility, code requirements, warranty, or pricing transparency.
+
+Do not list minor details merely because they are absent.
+
+Do not request information that is already reasonably established elsewhere in the proposal.
+
+Do not treat exact equipment age, cosmetic details, contractor preferences, or other non-material details as important missing information unless they directly affect the recommendation.
+
+Do not invent missing requirements merely to populate the Missing Information section.
+
+If no materially important information is missing, state that clearly.
+
+
+RECOMMENDATION LEVELS:
+
+PROCEED:
+Use only when the proposal is reasonably supported, the equipment/scope appears appropriate, and there are no meaningful unresolved technical, scope, pricing, or transparency issues that should be resolved before approval.
+
+Do NOT use PROCEED if the report recommends that the homeowner obtain, request, verify, clarify, or review something before approving or proceeding.
+
+If the proposal lacks meaningful itemized pricing, and the report recommends requesting an itemized price breakdown before approval, the recommendation MUST be REVIEW BEFORE APPROVING — even when the technical scope is otherwise strong.
+
+Minor optional suggestions or questions that do not affect the homeowner's decision should not prevent PROCEED.
+
+REVIEW BEFORE APPROVING:
+Use when there is a meaningful unresolved technical, scope, pricing, or transparency issue the homeowner should resolve before authorizing the work.
+
+Lack of meaningful itemized pricing is a pricing-transparency issue. If an itemized breakdown should be obtained before the homeowner approves the work, use REVIEW BEFORE APPROVING.
+
+When pricing transparency is the only unresolved issue, clearly state that the technical scope may otherwise be sound and that the recommendation is being held at REVIEW BEFORE APPROVING specifically because the homeowner should understand the price breakdown before authorizing the work.
+
+GET A SECOND OPINION:
+Use when there are substantial technical concerns, unsupported diagnosis, questionable scope, significant missing diagnostic evidence, potentially unnecessary work, or other major red flags.
+
+The recommendation must reflect the severity of the findings. Do not downgrade a proposal simply because additional information would be nice to have.
+
+When the evidence supports moving forward, say so directly and confidently.
+
+GOOD EXAMPLE:
+"This proposal is technically sound and I would be comfortable moving forward with it. The equipment and scope are appropriate based on the information provided, and no significant technical red flags were identified."
+
+BAD EXAMPLE:
+"I would proceed as long as you're comfortable with the price."
+
+BAD EXAMPLE:
+"Confirm that the contractor has experience with these specific equipment models."
+
+Separate REQUIRED corrections from OPTIONAL suggestions. Optional suggestions should not be presented as reasons to delay an otherwise acceptable project.
+
 
 
 """,
@@ -1889,22 +1976,43 @@ def build_report_html(analysis):
         "cannot confirm",
     ]
 
-    if any(phrase in recommendation_lower for phrase in positive_phrases) and not red_flags:
+    if red_flags or any(phrase in recommendation_lower for phrase in caution_phrases):
+        verdict = "REVIEW BEFORE APPROVING"
+        verdict_class = "verdict-caution"
+        support_label = "Needs Clarification"
+        verdict_explanation = (
+            "The proposal may be technically reasonable, but there are items that should be clarified "
+            "before you authorize the work."
+        )
+
+    elif any(
+         phrase in recommendation_lower
+         for phrase in [
+            "itemized",
+            "price breakdown",
+            "pricing breakdown",
+            "pricing transparency",
+            "cost breakdown",
+            "breakdown of costs",
+        ]
+    ):
+        verdict = "REVIEW BEFORE APPROVING"
+        verdict_class = "verdict-caution"
+        support_label = "Strong"
+        verdict_explanation = (
+            "The technical findings support the proposed work, but the proposal lacks sufficient pricing "
+            "transparency. Request an itemized breakdown before approving the work."
+        )
+
+    elif any(phrase in recommendation_lower for phrase in positive_phrases):
         verdict = "PROCEED"
         verdict_class = "verdict-good"
         support_label = "Strong"
         verdict_explanation = (
             "The documented findings support the proposed work, and no major red flags "
             "were identified in the submitted proposal."
-        )
-    elif red_flags or any(phrase in recommendation_lower for phrase in caution_phrases):
-        verdict = "REVIEW BEFORE APPROVING"
-        verdict_class = "verdict-caution"
-        support_label = "Needs Clarification"
-        verdict_explanation = (
-            "The proposal may be reasonable, but there are items that should be clarified "
-            "before you authorize the work."
-        )
+    )
+
     else:
         verdict = "REVIEW FINDINGS"
         verdict_class = "verdict-neutral"
