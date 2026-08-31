@@ -5,7 +5,7 @@ import base64
 import smtplib
 import urllib.request
 from email.message import EmailMessage
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form 
@@ -31,6 +31,33 @@ WEBSITE_URL = "https://www.checkyourtech.info"
 LOGO_URL = "/static/logo.png"
 
 
+Verdict = Literal[
+    "PROCEED",
+    "REVIEW_BEFORE_APPROVING",
+    "GET_A_SECOND_OPINION",
+]
+TechnicalSupport = Literal[
+    "SUPPORTED",
+    "PARTIALLY_SUPPORTED",
+    "UNSUPPORTED",
+]
+PricingTransparency = Literal[
+    "ADEQUATE",
+    "LIMITED",
+    "ABSENT",
+    "NOT_APPLICABLE",
+]
+
+
+class HVACDecision(BaseModel):
+    verdict: Verdict
+    technical_support: TechnicalSupport
+    pricing_transparency: PricingTransparency
+    required_actions: List[str] = Field(default_factory=list)
+    optional_suggestions: List[str] = Field(default_factory=list)
+    verdict_reasons: List[str] = Field(default_factory=list)
+
+
 class HVACAnalysis(BaseModel):
     project_overview: str
     equipment_analysis: str
@@ -43,6 +70,7 @@ class HVACAnalysis(BaseModel):
     red_flags: List[str]
     good_signs: List[str]
     recommendation: str
+    decision: HVACDecision
 
 class QuoteClassification(BaseModel):
     quote_type: str
@@ -951,7 +979,7 @@ PROPOSAL DETAIL LIMITS
 
 Do not treat the absence of an exact replacement part number or model number as a red flag by itself for a normal residential repair quote.
 
-Do not treat the absence of separate parts and labor pricing as a red flag by itself. Many HVAC contractors use flat-rate repair pricing.
+Do not treat the absence of separate parts and labor pricing as a technical red flag or evidence of overcharging. Identify the limited pricing transparency and recommend requesting meaningful itemization before approval.
 
 For control board repair proposals, do not criticize, emphasize, or recommend follow-up solely because the proposal lacks:
 - an exact replacement board model or part number
@@ -1787,97 +1815,60 @@ Distinguish between:
 The goal is to identify whether the contractor's proposed diagnosis is
 reasonably supported, not to diagnose the HVAC system remotely.
 
-RECOMMENDATION AND DECISION RULES:
-
-Give the homeowner a clear, confident recommendation based on the evidence in the submitted proposal.
-
-Do not invent concerns, requirements, or additional hurdles that are not supported by the proposal or relevant HVAC practice.
-
-CONTRACTOR EXPERIENCE:
-- Do not recommend asking whether the contractor has experience with a specific equipment model or model number merely because equipment model numbers are listed.
-- A contractor does not need to demonstrate prior experience with the exact model number for an otherwise normal residential HVAC installation.
-- Only raise contractor qualification, certification, or specialized-equipment experience when there is a specific technical reason it matters to the proposed work.
-
-PRICING TRANSPARENCY:
-
-Check Your Tech considers itemized pricing an important consumer-protection practice.
-
-A proposal should clearly identify the major components of the quoted price when reasonably possible, including equipment, major accessories or upgrades, labor or installation scope, permits, and other significant charges.
-
-A lump-sum price without meaningful itemization should be identified as a transparency concern, even if lump-sum pricing is common in the HVAC industry.
-
-Do not imply that common industry practice automatically makes a lack of pricing transparency acceptable.
-
-However, distinguish pricing transparency from technical quality.
-
-Lack of itemization alone is NOT a technical red flag and must not be described as evidence that the contractor, equipment, diagnosis, or installation is deficient.
-
-When an otherwise technically strong proposal lacks adequate price itemization:
-- Clearly state that the technical scope appears sound.
-- Recommend that the homeowner request an itemized price breakdown before approval.
-- Explain that the purpose is transparency and the ability to understand what they are paying for.
-- Do not imply wrongdoing or overcharging without supporting evidence.
-- Do not manufacture additional technical concerns merely to justify the recommendation.
-
-A proposal may therefore be technically strong while still receiving REVIEW BEFORE APPROVING because improved pricing transparency is warranted.
-
-If adequate itemization is provided and no material technical, scope, or pricing concerns remain, PROCEED is appropriate.
-
-MISSING INFORMATION RULES:
-
-Only identify missing information that could materially affect the homeowner's decision, the technical validity of the proposal, the scope of work, equipment compatibility, code requirements, warranty, or pricing transparency.
-
-Do not list minor details merely because they are absent.
-
-Do not request information that is already reasonably established elsewhere in the proposal.
-
-Do not treat exact equipment age, cosmetic details, contractor preferences, or other non-material details as important missing information unless they directly affect the recommendation.
-
-Do not invent missing requirements merely to populate the Missing Information section.
-
-If no materially important information is missing, state that clearly.
-
-
-RECOMMENDATION LEVELS:
-
-PROCEED:
-Use only when the proposal is reasonably supported, the equipment/scope appears appropriate, and there are no meaningful unresolved technical, scope, pricing, or transparency issues that should be resolved before approval.
-
-Do NOT use PROCEED if the report recommends that the homeowner obtain, request, verify, clarify, or review something before approving or proceeding.
-
-If the proposal lacks meaningful itemized pricing, and the report recommends requesting an itemized price breakdown before approval, the recommendation MUST be REVIEW BEFORE APPROVING — even when the technical scope is otherwise strong.
-
-Minor optional suggestions or questions that do not affect the homeowner's decision should not prevent PROCEED.
-
-REVIEW BEFORE APPROVING:
-Use when there is a meaningful unresolved technical, scope, pricing, or transparency issue the homeowner should resolve before authorizing the work.
-
-Lack of meaningful itemized pricing is a pricing-transparency issue. If an itemized breakdown should be obtained before the homeowner approves the work, use REVIEW BEFORE APPROVING.
-
-When pricing transparency is the only unresolved issue, clearly state that the technical scope may otherwise be sound and that the recommendation is being held at REVIEW BEFORE APPROVING specifically because the homeowner should understand the price breakdown before authorizing the work.
-
-GET A SECOND OPINION:
-Use when there are substantial technical concerns, unsupported diagnosis, questionable scope, significant missing diagnostic evidence, potentially unnecessary work, or other major red flags.
-
-The recommendation must reflect the severity of the findings. Do not downgrade a proposal simply because additional information would be nice to have.
-
-When the evidence supports moving forward, say so directly and confidently.
-
-GOOD EXAMPLE:
-"This proposal is technically sound and I would be comfortable moving forward with it. The equipment and scope are appropriate based on the information provided, and no significant technical red flags were identified."
-
-BAD EXAMPLE:
-"I would proceed as long as you're comfortable with the price."
-
-BAD EXAMPLE:
-"Confirm that the contractor has experience with these specific equipment models."
-
-Separate REQUIRED corrections from OPTIONAL suggestions. Optional suggestions should not be presented as reasons to delay an otherwise acceptable project.
-
-
-
 """,
 }
+
+
+GLOBAL_ANALYSIS_RULES = """
+UNIVERSAL ANALYSIS AND DECISION RULES
+
+Evaluate whether the contractor's proposed diagnosis, equipment, scope, installation practices, and pricing transparency are reasonably supported by the submitted proposal. Do not remotely diagnose the HVAC system or invent concerns merely because information is absent.
+
+STRUCTURED DECISION FACTS
+
+Populate decision.technical_support using only the proposal evidence:
+- SUPPORTED: the material diagnosis and proposed technical scope are reasonably supported.
+- PARTIALLY_SUPPORTED: some material portion needs clarification or additional support before approval.
+- UNSUPPORTED: a major diagnosis or proposed scope lacks adequate support and warrants another professional opinion.
+
+Populate decision.pricing_transparency separately from technical_support:
+- ADEQUATE: meaningful prices are separately identified for the relevant major cost components.
+- LIMITED: some useful price detail exists, but material cost components remain bundled or unclear.
+- ABSENT: only a lump-sum total is provided without meaningful component pricing.
+- NOT_APPLICABLE: pricing transparency cannot reasonably be evaluated or does not apply.
+
+The AI must populate the structured decision facts, required_actions, optional_suggestions, and verdict_reasons. Python applies the final verdict policy, so do not try to encode verdict instructions in recommendation prose.
+
+PRICING TRANSPARENCY
+
+Itemized pricing is important for homeowner transparency, but lack of itemization alone is not a technical defect or technical red flag. Never use missing itemization as evidence that the diagnosis, equipment, contractor, or installation is deficient. Do not imply wrongdoing or overcharging without supporting evidence.
+
+Do not excuse or minimize limited pricing transparency by telling the homeowner that bundled, flat-rate, or lump-sum HVAC pricing is common. Check Your Tech's consumer standard is that meaningful itemization is desirable and should be requested before approval when pricing transparency is LIMITED or ABSENT.
+
+When the technical proposal is supported but pricing transparency is LIMITED or ABSENT, keep technical_support as SUPPORTED and explain the pricing-transparency concern separately.
+
+A listed scope of work is not the same as an itemized price breakdown. Only classify pricing as ADEQUATE when the proposal provides meaningful separate prices for relevant equipment, parts, labor, materials, diagnostic charges, or other major cost components.
+
+If verified regional pricing data is unavailable, do not label the price fair, unreasonable, competitive, high, low, cheap, expensive, or overpriced. State that the total can be identified but local market competitiveness cannot be determined, and evaluate scope completeness separately from pricing transparency.
+
+MATERIALITY AND MISSING INFORMATION
+
+Only put an item in required_actions when it could materially affect approval, technical validity, scope, equipment compatibility, code requirements, warranty, or pricing transparency. Minor, nonmaterial, or nice-to-have details belong in optional_suggestions and must not affect technical_support.
+
+Do not request information already reasonably established in the proposal. Do not invent missing requirements merely to populate a section. If no material information is missing, say so clearly.
+
+REQUIRED VERSUS OPTIONAL FOLLOW-UP
+
+Keep required_actions and optional_suggestions distinct. Optional suggestions alone must not delay an otherwise supported and adequately transparent proposal.
+
+CONTRACTOR EXPERIENCE
+
+Do not require experience with an exact equipment model or model number merely because models are listed. Raise qualification, certification, or specialized-equipment experience only when a specific technical fact makes it material to the proposed work.
+
+CUSTOMER-FACING WRITING
+
+Keep recommendation consistent with the structured facts. Clearly distinguish technical quality from pricing transparency. Do not turn pricing-transparency concerns, optional suggestions, or minor missing details into technical red flags.
+"""
 
 def get_analysis_knowledge(classification: QuoteClassification) -> str:
     selected_modules = []
@@ -1893,6 +1884,133 @@ def get_analysis_knowledge(classification: QuoteClassification) -> str:
 
     return "\n\n".join(selected_modules)
 
+
+def determine_verdict(decision: HVACDecision) -> Verdict:
+    """Apply the single customer-verdict policy to structured analysis facts."""
+    if decision.technical_support == "UNSUPPORTED":
+        return "GET_A_SECOND_OPINION"
+
+    if decision.technical_support == "PARTIALLY_SUPPORTED":
+        return "REVIEW_BEFORE_APPROVING"
+
+    if decision.required_actions:
+        return "REVIEW_BEFORE_APPROVING"
+
+    if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        return "REVIEW_BEFORE_APPROVING"
+
+    return "PROCEED"
+
+
+PRICING_REQUIRED_ACTION = (
+    "Request an itemized breakdown of parts/equipment, labor, materials, permits, "
+    "and other major charges before approving the work."
+)
+
+
+def is_equivalent_itemization_action(action: str) -> bool:
+    normalized = " ".join(str(action or "").lower().split())
+    if "itemiz" in normalized:
+        return True
+
+    pricing_terms = (
+        "price",
+        "pricing",
+        "cost",
+        "parts",
+        "equipment",
+        "labor",
+        "materials",
+        "permits",
+        "charges",
+    )
+    return "breakdown" in normalized and any(
+        term in normalized for term in pricing_terms
+    )
+
+
+def ensure_pricing_required_action(decision: HVACDecision) -> None:
+    if decision.pricing_transparency not in {"LIMITED", "ABSENT"}:
+        return
+
+    if any(
+        is_equivalent_itemization_action(action)
+        for action in decision.required_actions
+    ):
+        return
+
+    decision.required_actions.append(PRICING_REQUIRED_ACTION)
+
+
+def verdict_display_name(verdict: Verdict) -> str:
+    return {
+        "PROCEED": "PROCEED",
+        "REVIEW_BEFORE_APPROVING": "REVIEW BEFORE APPROVING",
+        "GET_A_SECOND_OPINION": "GET A SECOND OPINION",
+    }[verdict]
+
+
+def build_customer_recommendation(decision: HVACDecision) -> str:
+    """Create one canonical summary for API prose, banner, takeaway, and bottom line."""
+    verdict = determine_verdict(decision)
+    display_verdict = verdict_display_name(verdict)
+
+    if verdict == "GET_A_SECOND_OPINION":
+        summary = (
+            "The proposal's major diagnosis or technical scope is not adequately "
+            "supported by the submitted information. Obtain a second professional "
+            "opinion before authorizing the work."
+        )
+    elif decision.technical_support == "PARTIALLY_SUPPORTED":
+        summary = (
+            "Part of the proposal is reasonably supported, but material technical or "
+            "scope questions should be resolved before approval."
+        )
+    elif decision.pricing_transparency == "LIMITED":
+        summary = (
+            "The technical proposal appears supported, but pricing transparency is "
+            "limited. Meaningful itemization should be requested before approval. "
+            "This does not imply dishonesty, overcharging, or a technical deficiency."
+        )
+    elif decision.pricing_transparency == "ABSENT":
+        summary = (
+            "The technical proposal appears supported, but pricing transparency is "
+            "limited because meaningful itemization is absent. Itemization should be "
+            "requested before approval. This does not imply dishonesty, overcharging, "
+            "or a technical deficiency."
+        )
+    elif decision.required_actions:
+        summary = (
+            "The technical proposal appears supported, but required items should be "
+            "resolved before approval."
+        )
+    else:
+        summary = (
+            "The submitted proposal is technically supported, and no material issues "
+            "need to be resolved before approval."
+        )
+
+    details = []
+    if verdict != "PROCEED" and decision.verdict_reasons:
+        details.append("Reasons: " + "; ".join(decision.verdict_reasons))
+    if decision.required_actions:
+        details.append(
+            "Required before approval: " + "; ".join(decision.required_actions)
+        )
+
+    result = f"{display_verdict} — {summary}"
+    if details:
+        result += " " + " ".join(details)
+    return result
+
+
+def apply_decision_policy(analysis: HVACAnalysis) -> HVACAnalysis:
+    """Make Python authoritative for both the verdict and customer-facing summary."""
+    ensure_pricing_required_action(analysis.decision)
+    analysis.decision.verdict = determine_verdict(analysis.decision)
+    analysis.recommendation = build_customer_recommendation(analysis.decision)
+    return analysis
+
 @app.get("/")
 def root():
     return {"status": "online"}
@@ -1907,7 +2025,9 @@ def make_list(items):
         return "<li>No major items identified.</li>"
     return "".join(f"<li>{esc(item)}</li>" for item in items)
 
-def build_report_html(analysis):
+def build_report_html(analysis, quote_count=None):
+    analysis = apply_decision_policy(analysis)
+
     def clean(value):
         return str(value or "").strip()
 
@@ -1949,83 +2069,34 @@ def build_report_html(analysis):
         """
 
     recommendation = clean(analysis.recommendation)
-    recommendation_lower = recommendation.lower()
 
     red_flags = clean_items(analysis.red_flags)
     good_signs = clean_items(analysis.good_signs)
 
-    # Customer-facing verdict
-    positive_phrases = [
-        "recommend proceeding",
-        "recommend moving forward",
-        "move forward with",
-        "proceeding with this repair",
-        "proceeding with this quote",
-        "appears reasonable",
-        "appears solid",
-    ]
+    verdict = verdict_display_name(analysis.decision.verdict)
+    verdict_explanation = recommendation
 
-    caution_phrases = [
-        "second opinion",
-        "further diagnostics",
-        "additional diagnostics",
-        "before approving",
-        "before proceeding",
-        "more information",
-        "clarification",
-        "cannot confirm",
-    ]
-
-    if red_flags or any(phrase in recommendation_lower for phrase in caution_phrases):
-        verdict = "REVIEW BEFORE APPROVING"
-        verdict_class = "verdict-caution"
-        support_label = "Needs Clarification"
-        verdict_explanation = (
-            "The proposal may be technically reasonable, but there are items that should be clarified "
-            "before you authorize the work."
-        )
-
-    elif any(
-         phrase in recommendation_lower
-         for phrase in [
-            "itemized",
-            "price breakdown",
-            "pricing breakdown",
-            "pricing transparency",
-            "cost breakdown",
-            "breakdown of costs",
-        ]
-    ):
-        verdict = "REVIEW BEFORE APPROVING"
-        verdict_class = "verdict-caution"
-        support_label = "Strong"
-        verdict_explanation = (
-            "The technical findings support the proposed work, but the proposal lacks sufficient pricing "
-            "transparency. Request an itemized breakdown before approving the work."
-        )
-
-    elif any(phrase in recommendation_lower for phrase in positive_phrases):
-        verdict = "PROCEED"
+    if analysis.decision.verdict == "PROCEED":
         verdict_class = "verdict-good"
-        support_label = "Strong"
-        verdict_explanation = (
-            "The documented findings support the proposed work, and no major red flags "
-            "were identified in the submitted proposal."
-    )
-
+    elif analysis.decision.verdict == "REVIEW_BEFORE_APPROVING":
+        verdict_class = "verdict-caution"
     else:
-        verdict = "REVIEW FINDINGS"
-        verdict_class = "verdict-neutral"
-        support_label = "Moderate"
-        verdict_explanation = (
-            "The proposal contains useful information, but the findings below should be "
-            "reviewed before making a final decision."
-        )
+        verdict_class = "verdict-caution"
+
+    support_label = {
+        "SUPPORTED": "Supported",
+        "PARTIALLY_SUPPORTED": "Partially Supported",
+        "UNSUPPORTED": "Unsupported",
+    }[analysis.decision.technical_support]
 
     missing_information = clean(analysis.missing_information)
     installation_concerns = clean(analysis.installation_concerns)
     quote_comparison = clean(analysis.quote_comparison)
     best_quote = clean(analysis.best_quote_recommendation)
+
+    if quote_count == 1:
+        quote_comparison = ""
+        best_quote = ""
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     project_overview = clean(analysis.project_overview)
@@ -2042,18 +2113,8 @@ def build_report_html(analysis):
             "submitted proposal."
         )
 
-    # Plain-English consumer takeaway
-    if recommendation:
-        plain_english = recommendation
-    elif not red_flags:
-        plain_english = (
-            "The proposal appears technically supported by the information provided, and "
-            "no major concerns were identified."
-        )
-    else:
-        plain_english = (
-            "The proposal contains items that deserve clarification before you approve the work."
-        )
+    # The banner, takeaway, and bottom line all use the canonical policy summary.
+    plain_english = recommendation
 
     return f"""
 <!DOCTYPE html>
@@ -2394,7 +2455,7 @@ def send_review_email(
         print("EMAIL_APP_PASSWORD missing. Skipping email send.")
         return
 
-    body = build_report_html(analysis)
+    body = build_report_html(analysis, quote_count=len(file_names))
     
     msg = EmailMessage()
     msg["Subject"] = f"New HVAC Quote Review - {customer_name}"
@@ -2493,6 +2554,8 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
 Review residential HVAC proposals, estimates, and repair quotes like a homeowner handed them to you and asked: "Would you approve this?"
 
 Write like a real foreman talking to a homeowner, not like AI, a lawyer, or a salesman.
+
+{GLOBAL_ANALYSIS_RULES}
 
 You can review:
 - full HVAC system replacements
@@ -2604,22 +2667,7 @@ Use clear homeowner-facing language such as:
 
 Base this distinction only on the evidence documented in the submitted quote.
 
-PRICING LANGUAGE RULES
-
-A listed scope of work is not the same as an itemized price breakdown.
-
-Only describe pricing as itemized or transparent when the proposal actually provides separate prices for relevant parts, labor, materials, diagnostic charges, or other cost components.
-
-If verified regional pricing data is not available:
-- do not describe the quoted price as fair, reasonable, unreasonable, competitive, acceptable, appropriate, high, low, cheap, expensive, overpriced, or similar
-- do not recommend approving or rejecting a quote based on the quoted price itself
-- state that the quoted total can be identified, but its local market competitiveness cannot be determined
-- evaluate scope completeness and pricing transparency separately from price level
-- do not claim the price is itemized merely because the scope of work lists multiple tasks or components
-
 If two or three quotes are provided, compare them and choose a Foreman's Pick. Do not automatically choose the cheapest quote.
-
-Never invent missing information. If something is not shown, say: "I don't see that listed."
 
 Never accuse a contractor of dishonesty.
 
@@ -2662,6 +2710,7 @@ Submitted HVAC Quote(s):
     )
 
     analysis = completion.choices[0].message.parsed
+    analysis = apply_decision_policy(analysis)
 
     send_review_email(
         customer_name=customer_name,
@@ -2746,7 +2795,9 @@ async def upload_file(
 
     analysis = await analyze_hvac_quote(request)
 
-    return HTMLResponse(build_report_html(analysis))
+    return HTMLResponse(
+        build_report_html(analysis, quote_count=len(uploaded_quotes))
+    )
 
 
  
@@ -2862,4 +2913,4 @@ async def upload_page(package: str = "basic"):
     </div>
 </body>
 </html>
-    """.replace("{package}",package) 
+    """.replace("{package}",package)
