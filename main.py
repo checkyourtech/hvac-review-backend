@@ -4,6 +4,8 @@ import html
 import base64
 import smtplib
 import urllib.request
+import re
+from enum import Enum
 from email.message import EmailMessage
 from typing import List, Literal, Optional
 
@@ -69,8 +71,25 @@ class HVACAnalysis(BaseModel):
     contractor_vetting: str
     red_flags: List[str]
     good_signs: List[str]
+    contractor_questions: List[str] = Field(default_factory=list)
     recommendation: str
     decision: HVACDecision
+    banner_explanation: str = ""
+    homeowner_takeaway: str = ""
+    bottom_line: str = ""
+
+
+class AnalysisModule(str, Enum):
+    COMPRESSOR = "compressor"
+    REFRIGERANT_SYSTEM = "refrigerant_system"
+    ELECTRICAL_CONTROLS = "electrical_controls"
+    MOTORS = "motors"
+    FURNACE_COMBUSTION = "furnace_combustion"
+    DUCT_AIRFLOW = "duct_airflow"
+    WARRANTY = "warranty"
+    COMMISSIONING = "commissioning"
+    REPAIR_VS_REPLACE = "repair_vs_replace"
+    PRICING = "pricing"
 
 class QuoteClassification(BaseModel):
     quote_type: str
@@ -83,7 +102,7 @@ class QuoteClassification(BaseModel):
     diagnostic_evidence: List[str] = Field(default_factory=list)
     missing_information: List[str] = Field(default_factory=list)
 
-    modules_required: List[str] = Field(default_factory=list)
+    modules_required: List[AnalysisModule] = Field(default_factory=list)
 
     confidence: str = "moderate"
 
@@ -245,31 +264,35 @@ List important information that appears necessary to understand the proposed wor
 Choose all relevant analysis modules from:
 - compressor
 - refrigerant_system
-- electrical_diagnosis
 - electrical_controls
 - motors
 - furnace_combustion
-- heat_exchanger
-- controls
-- equipment_matching
-- sizing
 - duct_airflow
-- lineset
-- electrical_scope
-- gas_scope
-- condensate
 - commissioning
 - warranty
 - repair_vs_replace
 - pricing
-- multi_quote_comparison
 
-Only include "multi_quote_comparison" when two or more separate contractor quotes are submitted.
-Never include "multi_quote_comparison" for a single quote.
+Use only module names from this list. Do not invent or return other module names.
+
+Select motors when diagnosis or replacement involves a blower motor, ECM module, condenser fan motor, inducer motor, or another HVAC motor.
+
+Select furnace_combustion when the proposal involves furnace draft proving, an inducer sequence, a pressure switch, an igniter, flame proving, or furnace combustion/control safety sequence.
+
+Select duct_airflow when the proposal involves airflow, static pressure, blower airflow configuration, duct restrictions, supply or return restrictions, or ductwork evaluation.
+
+Select warranty whenever warranty coverage materially affects a major repair or replacement decision.
+
+Select commissioning when startup, pressure testing, evacuation, charging verification, airflow verification, or post-repair operational verification is material to the proposed work.
+
+Select repair_vs_replace when the proposal involves a major repair whose economics should be compared with equipment replacement.
+
+Select pricing whenever a repair or replacement price is provided.
+
 For compressor replacement repairs, always include:
 - compressor
 - refrigerant_system
-- electrical_diagnosis
+- electrical_controls
 - warranty
 - repair_vs_replace
 - pricing
@@ -293,15 +316,17 @@ Include:
 
 Only include "compressor" if the proposal actually involves compressor diagnosis, compressor repair, or compressor replacement.
 
-Only include "electrical_diagnosis" when the proposal documents or proposes investigation of an electrical problem.
+Only include "electrical_controls" when the proposal documents or proposes investigation of an electrical or control problem.
 
-Do not include "compressor" or "electrical_diagnosis" simply because the system has low refrigerant, a refrigerant leak, or a leaking evaporator or condenser coil.
+Do not include "compressor" or "electrical_controls" simply because the system has low refrigerant, a refrigerant leak, or a leaking evaporator or condenser coil.
 
 For electrical or control repair quotes:
 
 Include:
-- electrical_controls
-- electrical_diagnosis
+- electrical_controls when electrical/control diagnosis is involved
+- motors when a blower, condenser-fan, inducer, or other motor is diagnosed or replaced
+- furnace_combustion when furnace draft proving, pressure switches, ignition, flame proving, or combustion sequence is involved
+- duct_airflow when airflow, static pressure, duct restrictions, or ductwork is material
 
 Select electrical_controls when the proposal involves repair, replacement, diagnosis, or testing of electrical or control components such as capacitors, contactors, relays, transformers, control boards, sequencers, fuses, disconnects, breakers, control wiring, high-voltage wiring, or burned electrical connections.
 
@@ -309,7 +334,7 @@ Use electrical_controls for component-level electrical/control repairs.
 
 Do not select electrical_controls merely because an HVAC system contains electrical components. Select it only when electrical or control work is part of the proposed repair or diagnosis.
 
-Select electrical_diagnosis whenever the proposal involves diagnosing or condemning an electrical/control component and the diagnosis depends on voltage, amperage, resistance, continuity, thermostat-call, fuse, transformer, motor, board-output, or fault-code testing.
+Select electrical_controls whenever the proposal involves diagnosing or condemning an electrical/control component and the diagnosis depends on voltage, amperage, resistance, continuity, thermostat-call, fuse, transformer, board-output, or fault-code testing.
 
 10. confidence
 Use:
@@ -338,7 +363,7 @@ Classify the following HVAC quote or quotes:
 
     return completion.choices[0].message.parsed
 
-ANALYSIS_MODULES = {
+LEGACY_ANALYSIS_KNOWLEDGE = {
     "compressor": """
 COMPRESSOR REPAIR ANALYSIS RULES
 
@@ -1819,6 +1844,266 @@ reasonably supported, not to diagnose the HVAC system remotely.
 }
 
 
+def _prompt_section(prompt: str, start: str, end: Optional[str] = None) -> str:
+    if start not in prompt:
+        raise RuntimeError(f"Missing analysis prompt section: {start}")
+
+    section = start + prompt.split(start, 1)[1]
+    if end:
+        if end not in section:
+            raise RuntimeError(f"Missing analysis prompt boundary: {end}")
+        section = section.split(end, 1)[0]
+    return section.strip()
+
+
+_legacy_compressor = LEGACY_ANALYSIS_KNOWLEDGE["compressor"]
+_legacy_refrigerant = LEGACY_ANALYSIS_KNOWLEDGE["refrigerant_system"]
+_legacy_electrical = LEGACY_ANALYSIS_KNOWLEDGE["electrical_controls"]
+
+_corrupted_electrical_text = """- incoming and outgoing r motor or inducer assembly replacement proposals,
+evaluate whether the documented evidence reasonably supports failure of the
+inducer itself.
+
+Do not assume an inducer motor is defective merely because:
+- the furnace does not heat
+- the inducer does not run
+- a pressure-switch fault is present
+- ignition does not begin
+- the furnace has a draft-rvoltage readings"""
+
+_electrical_core = _prompt_section(
+    _legacy_electrical,
+    "ELECTRICAL / CONTROL REPAIR ANALYSIS RULES",
+    "BLOWER MOTOR AND ECM REPAIRS",
+).replace(_corrupted_electrical_text, "- incoming and outgoing voltage readings")
+
+_electrical_scope = _prompt_section(
+    _legacy_electrical,
+    "Do not mention these omissions in equipment_analysis",
+    "PRICING\n\nFollow the regional pricing limitation rules.",
+)
+
+_compressor_command_artifact = """EMAIL_APP_PASSWORD="" python -c "import asyncio; from main import AnalyzeRequest, UploadedQuote, analyze_hvac_quote; r=AnalyzeRequest(customerName='Test Customer', customerEmail='test@example.com', city='Reno', state='NV', files=[UploadedQuote(fileName='electrical_compressor_good_test.txt', extractedText=open('electrical_compressor_good_test.txt').read())]); a=asyncio.run(analyze_hvac_quote(r)); print(a.model_dump_json(indent=2))"
+
+"""
+
+SECTION_QUALITY_RULES = """
+ALWAYS-ON REPORT SECTION QUALITY RULES
+
+Apply these rules to every proposal. Use the technical modules for domain facts; use this layer to place those facts in the correct customer-facing report fields.
+
+GOOD SIGNS (good_signs)
+- Capture material favorable evidence actually documented in the proposal, including diagnostic measurements supporting the diagnosis, clearly identified failed components, physical evidence of failure, appropriate work procedures, post-work operational verification, permits, and meaningful warranty coverage when applicable.
+- A concrete measurement, confirmed failed component, physical evidence, or meaningful verification step should generally appear here when relevant.
+- Do not use generic praise, brand reputation, or manufactured positives merely to fill the section.
+- Do not say there are no positive findings when substantive favorable evidence appears elsewhere in the analysis.
+- Keep good_signs consistent with decision.technical_support. When technical support is PARTIALLY_SUPPORTED, credit documented favorable facts but do not call the unresolved diagnosis clear, confirmed, verified, or well-supported. When technical support is UNSUPPORTED, never praise the disputed diagnosis itself as a positive finding. A supported diagnosis may be credited only when the documented evidence supports that characterization.
+
+RED FLAGS (red_flags)
+- Include only material concerns that could reasonably change whether the homeowner should approve the proposal: an unsupported major diagnosis, contradictory evidence, unsafe or materially incomplete critical scope, an omitted critical procedure, potentially unnecessary work, or scope that does not address the documented cause.
+- Do not use filler, minor omissions, optional suggestions, or lack of itemization alone as technical red flags. An empty list is correct when no material technical red flags exist.
+- Pricing transparency, bundled pricing, and missing itemization must never populate red_flags by themselves. Keep them in decision.pricing_transparency, required_actions, pricing_review, and the single applicable contractor pricing question.
+- Combine closely related concerns into one material red flag instead of listing several versions of the same unresolved issue.
+
+INSTALLATION / REPAIR CONCERNS (installation_concerns)
+- Evaluate whether the proposed scope is sufficient to complete and verify the specific work proposed.
+- Identify important procedures that are included and material procedures that are absent or unclear. Evaluate whether the scope addresses the cause rather than only the symptom, and whether repair effectiveness or system operation will be verified afterward.
+- Distinguish required procedures from optional enhancements and keep expectations proportional to the repair.
+- Do not default to saying no concerns were identified merely because poor workmanship has not been proven. A supported diagnosis can still have an incomplete scope.
+- Apply only completion and verification appropriate to the actual work; do not import specialized procedures from unrelated systems.
+
+MISSING INFORMATION (missing_information)
+- Prioritize omissions by decision impact: (1) evidence needed to support the diagnosis, (2) information needed to know whether the scope corrects the cause, (3) material compatibility, safety, installation, or verification facts, (4) material warranty facts, then (5) material pricing facts.
+- Do not prioritize minor specifications over an unresolved diagnostic question, repeat facts already provided, or invent requirements because a field is absent.
+- If no materially important information is missing, say so clearly.
+
+PRICING REVIEW (pricing_review)
+- For every proposal with a quoted price, identify the total, whether major cost components are meaningfully itemized, what scope appears included, and what cannot be determined from the proposal.
+- Keep pricing transparency separate from technical quality. Lack of itemization alone does not imply dishonesty, overcharging, or poor technical work, and must not be excused merely because lump-sum HVAC pricing is common.
+- Without verified regional pricing evidence, do not call a price fair, high, low, excessive, reasonable, or competitive.
+- If no price is provided, state that price and value cannot be meaningfully evaluated from the submitted proposal.
+
+GENERIC SCOPE QUALITY
+For every proposal, ask whether the work addresses the documented problem, includes the essential repair or installation steps, verifies operation or effectiveness afterward, omits a critical follow-up step, or confuses an optional enhancement with a mandatory procedure. Keep this evaluation specific and proportional. Detailed technical commissioning procedures remain applicable only when supported by the selected technical modules and actual scope.
+"""
+
+UNIVERSAL_PRICING_RULES = """
+PRICING AND TRANSPARENCY
+
+When a proposal contains a quoted total or component price, identify the total, the meaningful cost components (if any), the included scope, and the limits of what can be determined. A scope list without separate prices is not price itemization.
+
+Meaningful itemization is desirable for homeowner transparency. If major parts, equipment, labor, materials, permits, diagnostic charges, or other major charges remain bundled, describe pricing transparency as limited or absent as appropriate and recommend requesting a breakdown before approval.
+
+Keep pricing transparency separate from technical support and red flags. Lack of itemization alone does not establish dishonesty, overcharging, or technical deficiency. Do not excuse limited transparency because flat-rate or lump-sum HVAC pricing is common.
+
+Without verified regional pricing evidence, do not characterize the amount as fair, high, low, excessive, reasonable, competitive, above market, or below market. State what is known and what cannot be evaluated.
+"""
+
+UNIVERSAL_WARRANTY_RULES = """
+WARRANTY REVIEW
+
+Warranty guidance is available for every proposal but must be proportional to the scope and value of the work.
+- Credit meaningful documented coverage when applicable, separating manufacturer parts, contractor labor, refrigerant, and other coverage when the proposal provides those distinctions.
+- Never invent or assume coverage.
+- Do not penalize a routine minor repair merely because warranty language is absent.
+- Treat missing warranty information as decision-relevant only when material to the proposed scope or value. Major repairs and replacements generally warrant more scrutiny than small service repairs.
+- Meaningful documented warranty coverage may be included in good_signs.
+"""
+
+ELECTRICAL_POSITIVE_EVIDENCE_RULES = """
+ELECTRICAL POSITIVE EVIDENCE
+
+For electrical/control proposals, reflect documented favorable evidence in good_signs when relevant, including measured electrical values supporting component failure, a clearly identified failed component, visible physical damage, correct component ratings or specifications, wiring or terminal inspection/repair, voltage verification, relevant amperage verification, and operational testing after repair.
+
+For capacitor and contactor work, specifically credit measured capacitance compared with rated capacitance, visibly burned or pitted contacts, documented voltage checks, evaluation of compressor/fan/motor behavior, and post-repair operational verification when those facts are documented. Do not manufacture a positive finding when the proposal does not contain the evidence.
+"""
+
+REFRIGERANT_DECISION_PRIORITY_RULES = """
+LOW-CHARGE DECISION PRIORITIES
+
+Proof of low refrigerant charge is not the same as proof of a refrigerant leak. Distinguish: (A) evidence supporting low charge, (B) evidence explaining why charge is low, (C) evidence confirming or locating a leak, and (D) whether the proposed repair is temporary or symptom-based versus corrective.
+
+Customer reports such as poor cooling, warm air, long run time, icing, or noise are symptoms, not diagnostic evidence of low refrigerant, a leak, a compressor failure, a metering-device failure, an airflow restriction, or an electrical failure. In project_overview, describe the symptom first and attribute the proposed diagnosis to the contractor. Do not say the symptom indicates or proves the diagnosis.
+
+For low-charge proposals, prioritize the documented evidence establishing low charge and whether airflow was reasonably considered before reaching a refrigerant conclusion. Consider relevant pressures, superheat/subcooling, temperature split, saturation conditions, or other appropriate measurements without requiring every possible measurement in every case.
+
+Then consider whether the proposal explains why charge is low, whether leak investigation is appropriate, whether recharge-only work addresses the unresolved cause, and how final charge or system operation will be verified. Do not automatically require leak repair when no leak has been established, and do not automatically call recharge-only work technically wrong. Refrigerant type and original factory charge are secondary unless they materially affect the work.
+
+Do not describe a leak search, leak inspection, or leak repair as universally mandatory or categorically critical for every low-charge or recharge proposal. Use evidence-neutral language: evaluate whether the proposal explains why charge is low and whether leak investigation was performed or recommended when appropriate. Do not assume refrigerant loss or a leak has been confirmed merely because recharge is proposed.
+
+For installation_concerns, evaluate whether recharge-only scope adequately addresses and verifies the proposed diagnosis. Credit included recharge and operational testing, then identify neutrally when the proposal does not document how the cause of low charge was evaluated or how final charge will be verified. Do not automatically characterize an absent leak search as a critical installation failure.
+
+For red_flags, combine insufficient evidence establishing low charge and unresolved cause/leak-investigation concerns when they represent one closely related diagnostic issue. Add another red flag only for a genuinely separate material concern. Pricing transparency must remain outside red_flags.
+
+For missing_information, prioritize: the measurements establishing low charge; whether airflow was considered; whether the proposal explains why charge is low and whether leak investigation is appropriate; and how final charge or operation will be verified. Do not reduce the missing-information explanation to "leak search results." Explain neutrally that the proposal does not document the cause of the low-charge conclusion or whether leak investigation was performed or recommended when appropriate.
+
+When decision.technical_support is PARTIALLY_SUPPORTED or UNSUPPORTED because the low-charge evidence is incomplete, do not list the low-refrigerant diagnosis itself as a good_sign. Credit only independently documented favorable facts such as meaningful warranty coverage or an appropriate included verification step.
+"""
+
+ANALYSIS_MODULES: dict[AnalysisModule, str] = {
+    AnalysisModule.COMPRESSOR: "\n\n".join(
+        [
+            _prompt_section(
+                _legacy_compressor,
+                "COMPRESSOR REPAIR ANALYSIS RULES",
+                "REPAIR SCOPE",
+            ),
+            _prompt_section(
+                _legacy_compressor,
+                "HOMEOWNER QUESTIONS",
+            ),
+        ]
+    ),
+    AnalysisModule.REFRIGERANT_SYSTEM: "\n\n".join(
+        [
+            _prompt_section(
+                _legacy_refrigerant,
+                "REFRIGERANT SYSTEM AND COIL REPAIR ANALYSIS RULES",
+                "DIAGNOSIS AND LEAK CONFIRMATION",
+            ),
+            _prompt_section(
+                _legacy_refrigerant,
+                "RECHARGE-ONLY PROPOSALS",
+                "PRESSURE TESTING",
+            ),
+            _prompt_section(
+                _legacy_refrigerant,
+                "REFRIGERANT TYPE AND SYSTEM AGE",
+                "WARRANTY\n\nFor coil and refrigerant-system repairs",
+            ),
+            _prompt_section(
+                _legacy_refrigerant,
+                "LEAK DIAGNOSIS LIMITATION",
+            ),
+            _prompt_section(
+                _legacy_electrical,
+                "LOW-CHARGE DIAGNOSTIC EVIDENCE",
+                "LEAK / REFRIGERANT LOSS",
+            ),
+            _prompt_section(
+                _legacy_electrical,
+                "METERING DEVICE / TXV / PISTON REPAIRS",
+                "AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW",
+            ),
+            REFRIGERANT_DECISION_PRIORITY_RULES,
+        ]
+    ),
+    AnalysisModule.ELECTRICAL_CONTROLS: "\n\n".join(
+        [_electrical_core, _electrical_scope, ELECTRICAL_POSITIVE_EVIDENCE_RULES]
+    ),
+    AnalysisModule.MOTORS: _prompt_section(
+        _legacy_electrical,
+        "BLOWER MOTOR AND ECM REPAIRS",
+        "INDUCER MOTOR / COMBUSTION DRAFT REPAIRS",
+    ),
+    AnalysisModule.FURNACE_COMBUSTION: "\n\n".join(
+        [
+            _prompt_section(
+                _legacy_electrical,
+                "INDUCER MOTOR / COMBUSTION DRAFT REPAIRS",
+                "Do not mention these omissions in equipment_analysis",
+            ),
+            _prompt_section(
+                _legacy_electrical,
+                "PRESSURE SWITCH / DRAFT PROVING REPAIRS",
+                "REFRIGERANT LEAK / LOW CHARGE REPAIRS",
+            ).replace("IGNITER_REPAIR_LOGIC =\n", ""),
+        ]
+    ),
+    AnalysisModule.DUCT_AIRFLOW: _prompt_section(
+        _legacy_electrical,
+        "AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW",
+    ),
+    AnalysisModule.WARRANTY: UNIVERSAL_WARRANTY_RULES,
+    AnalysisModule.COMMISSIONING: "\n\n".join(
+        [
+            _prompt_section(
+                _legacy_compressor,
+                "REPAIR SCOPE",
+                "WARRANTY\n\nFor a compressor repair",
+            ),
+            _prompt_section(
+                _legacy_refrigerant,
+                "PRESSURE TESTING",
+                "REFRIGERANT TYPE AND SYSTEM AGE",
+            ),
+        ]
+    ),
+    AnalysisModule.REPAIR_VS_REPLACE: "\n\n".join(
+        [
+            _prompt_section(
+                _legacy_compressor,
+                "REPAIR VS REPLACEMENT",
+                "PRICING",
+            ),
+            _prompt_section(
+                _legacy_refrigerant,
+                "REPAIR VS REPLACEMENT",
+                "PRICING AND TRANSPARENCY",
+            ),
+        ]
+    ),
+    AnalysisModule.PRICING: UNIVERSAL_PRICING_RULES,
+}
+
+PHASE_2_MODULE_GAPS = (
+    "heat_exchanger",
+    "equipment_matching",
+    "sizing",
+    "lineset",
+    "electrical_scope",
+    "gas_scope",
+    "condensate",
+    "multi_quote_comparison",
+    "heat_pump_reversing_valve_defrost",
+)
+
+if set(ANALYSIS_MODULES) != set(AnalysisModule):
+    raise RuntimeError(
+        "Analysis module registry keys must exactly match the canonical module type."
+    )
+
+
 GLOBAL_ANALYSIS_RULES = """
 UNIVERSAL ANALYSIS AND DECISION RULES
 
@@ -1870,17 +2155,57 @@ CUSTOMER-FACING WRITING
 Keep recommendation consistent with the structured facts. Clearly distinguish technical quality from pricing transparency. Do not turn pricing-transparency concerns, optional suggestions, or minor missing details into technical red flags.
 """
 
-def get_analysis_knowledge(classification: QuoteClassification) -> str:
-    selected_modules = []
+def _quote_contains_price(quote_text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:[$£€]\s*\d|\b(?:total|price|cost|amount)\b[^\n]{0,40}\d|\b\d[\d,]*(?:\.\d{2})?\s*(?:usd|dollars?)\b)",
+            quote_text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def get_analysis_knowledge(
+    classification: QuoteClassification,
+    quote_text: str = "",
+) -> str:
+    selected_modules = [
+        SECTION_QUALITY_RULES.strip(),
+        UNIVERSAL_WARRANTY_RULES.strip(),
+    ]
+    selected_names = [
+        module.value if isinstance(module, AnalysisModule) else str(module)
+        for module in classification.modules_required
+    ]
+    print("ANALYSIS MODULES SELECTED:", selected_names)
 
     for module_name in classification.modules_required:
-        module_text = ANALYSIS_MODULES.get(module_name)
+        try:
+            canonical_module = (
+                module_name
+                if isinstance(module_name, AnalysisModule)
+                else AnalysisModule(module_name)
+            )
+            module_text = ANALYSIS_MODULES[canonical_module]
+        except (KeyError, ValueError) as exc:
+            raise ValueError(
+                f"Unknown or unregistered analysis module: {module_name}"
+            ) from exc
 
-        if module_text:
-            selected_modules.append(module_text.strip())
+        if canonical_module in {AnalysisModule.WARRANTY, AnalysisModule.PRICING}:
+            continue
+        selected_modules.append(module_text.strip())
 
-    if not selected_modules:
-        return ""
+    if (
+        AnalysisModule.PRICING in classification.modules_required
+        or _quote_contains_price(quote_text)
+    ):
+        selected_modules.append(UNIVERSAL_PRICING_RULES.strip())
+
+    print(
+        "ANALYSIS MODULES RESOLVED:",
+        selected_names,
+    )
 
     return "\n\n".join(selected_modules)
 
@@ -1906,6 +2231,34 @@ PRICING_REQUIRED_ACTION = (
     "Request an itemized breakdown of parts/equipment, labor, materials, permits, "
     "and other major charges before approving the work."
 )
+
+PRICING_CONTRACTOR_QUESTION = (
+    "Can you provide an itemized breakdown of the parts/equipment, labor, "
+    "materials, permits, and other major charges included in the quoted total?"
+)
+
+MULTI_QUOTE_PRICING_QUESTION = (
+    "For each quote with bundled pricing, can you provide an itemized breakdown "
+    "of the parts/equipment, labor, materials, permits, and other major charges?"
+)
+
+CONTRACTOR_QUESTION_RULES = """
+QUESTIONS TO ASK YOUR CONTRACTOR
+
+Populate contractor_questions with zero to five material technical or scope questions that the homeowner should ask before approval. Python handles pricing-question ordering and deduplication separately; if the quote-specific amount or cost components make a tailored itemization question useful, include no more than one pricing question.
+
+Questions are assembled by purpose: diagnostic_evidence, cause_or_leak_investigation, repair_scope, verification, warranty, and pricing. Diagnostic evidence and cause questions come first, final verification must remain ahead of pricing, and only one pricing-category question may appear.
+
+Base questions only on required technical actions, material missing information, material technical concerns, or unresolved scope questions already supported by this analysis. Optional suggestions alone must not create questions. If the proposal is fully supported and no material clarification is needed, return an empty list.
+
+Order questions by importance: diagnostic support; scope or corrective action; safety or compatibility; completion and operational verification; material warranty clarification; then pricing transparency. Write plain, non-accusatory questions that are directly answerable by the contractor. Avoid unnecessary jargon, generic checklists, invented concerns, and duplicate versions of the same issue.
+
+Questions must not assume an unproven diagnosis, cause, leak, refrigerant loss, or failure. For low-charge work, ask neutrally whether evidence explains why charge is low and whether leak investigation is appropriate; do not ask how the contractor will prevent refrigerant from being lost again unless loss or leakage has actually been established.
+
+Do not ask "Why was a leak search not included?" or otherwise presuppose that a leak search was mandatory. Ask whether leak investigation was performed or recommended and, if not, what evidence supports recharge-only work.
+
+When missing_information and a red flag describe the same unresolved issue, combine them into one question. For multiple proposals, identify the relevant quote in the question when necessary, such as "For Quote 2, ...?"
+"""
 
 
 def is_equivalent_itemization_action(action: str) -> bool:
@@ -1942,6 +2295,270 @@ def ensure_pricing_required_action(decision: HVACDecision) -> None:
     decision.required_actions.append(PRICING_REQUIRED_ACTION)
 
 
+def remove_pricing_transparency_red_flags(analysis: HVACAnalysis) -> None:
+    """Keep itemization concerns in pricing fields, never technical red flags."""
+    analysis.red_flags = [
+        flag
+        for flag in analysis.red_flags
+        if not is_equivalent_itemization_action(flag)
+    ]
+
+
+def remove_unresolved_diagnosis_good_signs(analysis: HVACAnalysis) -> None:
+    """Do not praise an unresolved diagnosis as though it were established."""
+    if analysis.decision.technical_support == "SUPPORTED":
+        return
+
+    praise_terms = ("clear", "confirm", "verif", "well-support", "supported")
+    analysis.good_signs = [
+        sign
+        for sign in analysis.good_signs
+        if not (
+            "diagnos" in " ".join(str(sign or "").lower().split())
+            and any(
+                term in " ".join(str(sign or "").lower().split())
+                for term in praise_terms
+            )
+        )
+    ]
+
+
+def presupposes_mandatory_leak_search(question: str) -> bool:
+    normalized = " ".join(str(question or "").lower().split())
+    if "leak search" not in normalized:
+        return False
+    return (
+        normalized.startswith("why ")
+        and ("not included" in normalized or "not performed" in normalized)
+    ) or "should have included" in normalized
+
+
+def refrigerant_context(analysis: HVACAnalysis, quote_text: str = "") -> bool:
+    combined = " ".join(
+        [
+            quote_text,
+            analysis.project_overview,
+            analysis.equipment_analysis,
+            analysis.missing_information,
+            analysis.installation_concerns,
+            *analysis.red_flags,
+            *analysis.contractor_questions,
+        ]
+    ).lower()
+    return any(term in combined for term in ("refrigerant", "low charge", "recharge"))
+
+
+def low_charge_evidence_documented(quote_text: str) -> bool:
+    normalized = quote_text.lower()
+    return any(
+        term in normalized
+        for term in (
+            "superheat",
+            "subcooling",
+            "suction pressure",
+            "head pressure",
+            "saturation temperature",
+            "temperature split",
+            "measured pressure",
+            "pressure reading",
+        )
+    )
+
+
+def low_charge_cause_evaluated(quote_text: str) -> bool:
+    normalized = quote_text.lower()
+    negative_phrases = (
+        "no leak search",
+        "leak search not",
+        "without a leak search",
+        "no cause documented",
+    )
+    if any(phrase in normalized for phrase in negative_phrases):
+        return False
+    return any(
+        term in normalized
+        for term in (
+            "leak detector",
+            "leak search performed",
+            "leak inspection performed",
+            "identified leak",
+            "leak located",
+            "nitrogen test",
+            "oil residue",
+            "reason for low charge",
+            "cause of low charge",
+        )
+    )
+
+
+def final_refrigerant_verification_documented(quote_text: str) -> bool:
+    normalized = quote_text.lower()
+    return any(
+        term in normalized
+        for term in (
+            "verify final charge",
+            "verify refrigerant charge",
+            "final charge verification",
+            "charge by superheat",
+            "charge by subcooling",
+            "weigh in refrigerant",
+            "weighed-in charge",
+        )
+    )
+
+
+def normalize_project_overview(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Separate homeowner symptoms from the contractor's proposed diagnosis."""
+    if not refrigerant_context(analysis, quote_text):
+        return
+
+    combined = " ".join((quote_text, analysis.project_overview)).lower()
+    symptom = None
+    for phrase, label in (
+        ("not cooling well", "poor cooling"),
+        ("poor cooling", "poor cooling"),
+        ("warm air", "warm air from the system"),
+        ("long run time", "long system run times"),
+        ("icing", "reported icing"),
+    ):
+        if phrase in combined:
+            symptom = label
+            break
+
+    if symptom and any(term in combined for term in ("low refrigerant", "low charge")):
+        proposed_work = (
+            " and proposes adding refrigerant"
+            if any(term in combined for term in ("add refrigerant", "adding refrigerant", "recharge"))
+            else ""
+        )
+        analysis.project_overview = (
+            f"The customer reports {symptom}. The contractor attributes the problem "
+            f"to low refrigerant{proposed_work}."
+        )
+
+
+def normalize_refrigerant_customer_fields(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Normalize low-charge concerns by evidence category, not model wording."""
+    if not refrigerant_context(analysis, quote_text):
+        return
+
+    support_unresolved = analysis.decision.technical_support != "SUPPORTED"
+    evidence_missing = not low_charge_evidence_documented(quote_text)
+    cause_unresolved = not low_charge_cause_evaluated(quote_text)
+    verification_unresolved = not final_refrigerant_verification_documented(quote_text)
+
+    if support_unresolved:
+        missing_points = []
+        if evidence_missing:
+            missing_points.append("what diagnostic evidence established the low-charge conclusion")
+        if cause_unresolved:
+            missing_points.append(
+                "whether the underlying cause was evaluated and whether leak investigation "
+                "was performed or recommended when appropriate"
+            )
+        if verification_unresolved:
+            missing_points.append("how final refrigerant charge and cooling performance will be verified")
+        if missing_points:
+            analysis.missing_information = (
+                "The proposal does not document " + "; ".join(missing_points) + "."
+            )
+
+        scope_points = []
+        if cause_unresolved:
+            scope_points.append("how the cause of the low charge was evaluated")
+        if verification_unresolved:
+            scope_points.append("how final charge and cooling performance will be verified")
+        if scope_points:
+            analysis.installation_concerns = (
+                "The proposal includes adding refrigerant and testing cooling operation, "
+                "but it does not document " + " or ".join(scope_points) + "."
+            )
+
+        retained_flags = []
+        for flag in analysis.red_flags:
+            normalized = str(flag or "").lower()
+            is_related_low_charge_flag = any(
+                term in normalized
+                for term in ("refrigerant", "low charge", "leak search", "leak investigation", "recharge")
+            )
+            if not is_related_low_charge_flag and not is_equivalent_itemization_action(flag):
+                retained_flags.append(flag)
+        if evidence_missing or cause_unresolved:
+            retained_flags.insert(
+                0,
+                "The proposal does not document sufficient evidence explaining the "
+                "low-charge diagnosis or whether the underlying cause was evaluated "
+                "before recommending recharge-only work.",
+            )
+        analysis.red_flags = list(dict.fromkeys(retained_flags))
+
+
+def contractor_question_category(question: str) -> str:
+    """Classify question purpose for deterministic ordering and pricing deduplication."""
+    normalized = " ".join(str(question or "").lower().split())
+    if any(
+        term in normalized
+        for term in ("price", "pricing", "cost", "itemiz", "breakdown", "quoted total", "charges")
+    ):
+        return "pricing"
+    if any(
+        term in normalized
+        for term in (
+            "verif",
+            "testing after",
+            "test after",
+            "after the work",
+            "after adding",
+            "final charge",
+            "proper refrigerant charge",
+            "cooling performance",
+            "final performance",
+            "final operation",
+            "confirm final",
+        )
+    ):
+        return "verification"
+    if "leak" in normalized or "cause" in normalized or "why" in normalized:
+        return "cause_or_leak_investigation"
+    if any(
+        term in normalized
+        for term in ("measurement", "testing", "test results", "evidence", "confirmed", "supports the conclusion")
+    ):
+        return "diagnostic_evidence"
+    if "warranty" in normalized or "coverage" in normalized:
+        return "warranty"
+    return "repair_scope"
+
+
+def deterministic_pricing_question(
+    analysis: HVACAnalysis,
+    quote_count: Optional[int],
+    quote_text: str = "",
+) -> str:
+    if quote_count and quote_count > 1:
+        return MULTI_QUOTE_PRICING_QUESTION
+
+    if refrigerant_context(analysis, quote_text):
+        amount_match = re.search(
+            r"[$£€]\s*\d[\d,]*(?:\.\d{2})?",
+            " ".join((quote_text, analysis.pricing_review, analysis.project_overview)),
+        )
+        amount = amount_match.group(0).replace(" ", "") if amount_match else ""
+        total_phrase = f" included in the {amount} total" if amount else " included in the quoted total"
+        return (
+            "Can you provide an itemized breakdown of the refrigerant, labor, and "
+            f"other charges{total_phrase}?"
+        )
+
+    return PRICING_CONTRACTOR_QUESTION
+
+
 def verdict_display_name(verdict: Verdict) -> str:
     return {
         "PROCEED": "PROCEED",
@@ -1951,7 +2568,7 @@ def verdict_display_name(verdict: Verdict) -> str:
 
 
 def build_customer_recommendation(decision: HVACDecision) -> str:
-    """Create one canonical summary for API prose, banner, takeaway, and bottom line."""
+    """Create the backward-compatible API recommendation from canonical facts."""
     verdict = determine_verdict(decision)
     display_verdict = verdict_display_name(verdict)
 
@@ -2004,12 +2621,220 @@ def build_customer_recommendation(decision: HVACDecision) -> str:
     return result
 
 
+def build_banner_explanation(decision: HVACDecision) -> str:
+    """Summarize the primary canonical reason without repeating report detail."""
+    if decision.verdict == "GET_A_SECOND_OPINION":
+        return (
+            "The submitted information does not adequately support the major "
+            "diagnosis or proposed technical scope."
+        )
+
+    if decision.technical_support == "PARTIALLY_SUPPORTED":
+        return (
+            "Material technical or scope questions need to be resolved before "
+            "the work is approved."
+        )
+
+    if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        return (
+            "The proposed work is technically supported, but the quoted price "
+            "should be clarified before authorization."
+        )
+
+    if decision.required_actions:
+        return (
+            "The proposed work is technically supported, but an important approval "
+            "item still needs to be resolved."
+        )
+
+    return "The diagnosis and proposed work are supported by the submitted information."
+
+
+def build_homeowner_takeaway(
+    decision: HVACDecision,
+    red_flags: List[str],
+    good_signs: List[str],
+) -> str:
+    """Interpret the canonical technical conclusion and immediate next step."""
+    if decision.verdict == "GET_A_SECOND_OPINION":
+        takeaway = (
+            "The submitted information does not adequately support the major diagnosis "
+            "or proposed technical scope. Obtain a second professional opinion before "
+            "authorizing the work."
+        )
+        if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+            takeaway += (
+                " Pricing detail is also limited, but the technical concern is primary."
+            )
+        return takeaway
+
+    if decision.technical_support == "PARTIALLY_SUPPORTED":
+        return (
+            "Part of the diagnosis or proposed scope is supported, but material technical "
+            "questions remain. Resolve the required technical or scope items before "
+            "approving the work."
+        )
+
+    takeaway = "The diagnosis and proposed scope appear technically supported."
+    if good_signs:
+        takeaway += f" One documented technical strength: {good_signs[0]}"
+        if not takeaway.endswith((".", "!", "?")):
+            takeaway += "."
+    if not red_flags:
+        takeaway += " No major technical red flags were identified."
+
+    if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        takeaway += (
+            " Before approving the work, ask for a clearer breakdown of the quoted total."
+        )
+    elif decision.required_actions:
+        takeaway += " Resolve the required approval item before authorizing the work."
+    else:
+        takeaway += " No material issue needs to be resolved before approval."
+
+    return takeaway
+
+
+def build_bottom_line(decision: HVACDecision) -> str:
+    """Give the canonical technical conclusion and final homeowner action."""
+    if decision.verdict == "GET_A_SECOND_OPINION":
+        return (
+            "The major diagnosis or proposed technical scope is not adequately supported. "
+            "Get a second professional opinion before authorizing the work."
+        )
+
+    if decision.technical_support == "PARTIALLY_SUPPORTED":
+        return (
+            "The proposal is only partially supported. Resolve the material technical or "
+            "scope questions before approving the work."
+        )
+
+    if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        return (
+            "The diagnosis and proposed work are technically supported. Move forward once "
+            "the contractor provides the requested price breakdown."
+        )
+
+    if decision.required_actions:
+        return (
+            "The diagnosis and proposed work are technically supported. Resolve the required "
+            "approval item before moving forward."
+        )
+
+    return (
+        "The diagnosis and proposed work are technically supported. No material issue needs "
+        "to be resolved before approval."
+    )
+
+
+def build_contractor_questions(
+    analysis: HVACAnalysis,
+    quote_count: Optional[int] = None,
+    quote_text: str = "",
+) -> List[str]:
+    """Create the canonical categorized question list for the finalized model."""
+    questions_by_category = {}
+    seen = set()
+
+    for raw_question in analysis.contractor_questions:
+        question = " ".join(str(raw_question or "").split())
+        if not question:
+            continue
+        normalized = question.casefold()
+        if normalized in seen:
+            continue
+        if presupposes_mandatory_leak_search(question):
+            seen.add(normalized)
+            continue
+        seen.add(normalized)
+        category = contractor_question_category(question)
+        if category != "pricing" and category not in questions_by_category:
+            questions_by_category[category] = question
+
+    is_refrigerant = refrigerant_context(analysis, quote_text)
+    support_unresolved = analysis.decision.technical_support != "SUPPORTED"
+    if is_refrigerant and support_unresolved:
+        if not low_charge_evidence_documented(quote_text):
+            questions_by_category.setdefault(
+                "diagnostic_evidence",
+                "What testing or measurements established that the system is low on refrigerant?",
+            )
+        if not low_charge_cause_evaluated(quote_text):
+            questions_by_category.setdefault(
+                "cause_or_leak_investigation",
+                "Was the cause of the low charge evaluated, and was leak investigation "
+                "performed or recommended when appropriate?",
+            )
+        if not final_refrigerant_verification_documented(quote_text):
+            questions_by_category.setdefault(
+                "verification",
+                "How will the refrigerant charge and cooling performance be verified after the work?",
+            )
+
+    priority = {
+        "diagnostic_evidence": 0,
+        "cause_or_leak_investigation": 1,
+        "repair_scope": 2,
+        "verification": 3,
+        "warranty": 4,
+    }
+    categorized_questions = sorted(
+        questions_by_category.items(),
+        key=lambda item: priority[item[0]],
+    )
+    questions = [question for _, question in categorized_questions[:5]]
+
+    if analysis.decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        questions.append(
+            deterministic_pricing_question(analysis, quote_count, quote_text)
+        )
+
+    return questions[:6]
+
+
+def finalize_customer_analysis(
+    analysis: HVACAnalysis,
+    quote_text: str = "",
+    quote_count: Optional[int] = None,
+) -> HVACAnalysis:
+    """Return the single canonical customer-facing analysis without mutating input."""
+    finalized = analysis.model_copy(deep=True)
+
+    normalize_project_overview(finalized, quote_text)
+    normalize_refrigerant_customer_fields(finalized, quote_text)
+    if not finalized.missing_information.strip():
+        finalized.missing_information = (
+            "No important missing information was identified that appears likely to "
+            "change the recommendation."
+        )
+    if not finalized.installation_concerns.strip():
+        finalized.installation_concerns = (
+            "No significant installation or repair-scope concerns were identified in "
+            "the submitted proposal."
+        )
+    remove_pricing_transparency_red_flags(finalized)
+    remove_unresolved_diagnosis_good_signs(finalized)
+    ensure_pricing_required_action(finalized.decision)
+    finalized.decision.verdict = determine_verdict(finalized.decision)
+    finalized.recommendation = build_customer_recommendation(finalized.decision)
+    finalized.contractor_questions = build_contractor_questions(
+        finalized,
+        quote_count,
+        quote_text,
+    )
+    finalized.banner_explanation = build_banner_explanation(finalized.decision)
+    finalized.homeowner_takeaway = build_homeowner_takeaway(
+        finalized.decision,
+        finalized.red_flags,
+        finalized.good_signs,
+    )
+    finalized.bottom_line = build_bottom_line(finalized.decision)
+    return finalized
+
+
 def apply_decision_policy(analysis: HVACAnalysis) -> HVACAnalysis:
-    """Make Python authoritative for both the verdict and customer-facing summary."""
-    ensure_pricing_required_action(analysis.decision)
-    analysis.decision.verdict = determine_verdict(analysis.decision)
-    analysis.recommendation = build_customer_recommendation(analysis.decision)
-    return analysis
+    """Backward-compatible entry point for callers that only need decision finalization."""
+    return finalize_customer_analysis(analysis)
 
 @app.get("/")
 def root():
@@ -2026,8 +2851,6 @@ def make_list(items):
     return "".join(f"<li>{esc(item)}</li>" for item in items)
 
 def build_report_html(analysis, quote_count=None):
-    analysis = apply_decision_policy(analysis)
-
     def clean(value):
         return str(value or "").strip()
 
@@ -2068,13 +2891,11 @@ def build_report_html(analysis, quote_count=None):
         </div>
         """
 
-    recommendation = clean(analysis.recommendation)
-
     red_flags = clean_items(analysis.red_flags)
     good_signs = clean_items(analysis.good_signs)
 
     verdict = verdict_display_name(analysis.decision.verdict)
-    verdict_explanation = recommendation
+    verdict_explanation = clean(analysis.banner_explanation)
 
     if analysis.decision.verdict == "PROCEED":
         verdict_class = "verdict-good"
@@ -2101,20 +2922,9 @@ def build_report_html(analysis, quote_count=None):
     equipment_analysis = clean(analysis.equipment_analysis)
     project_overview = clean(analysis.project_overview)
 
-    if not missing_information:
-        missing_information = (
-            "No important missing information was identified that appears likely to change "
-            "the recommendation."
-        )
-
-    if not installation_concerns:
-        installation_concerns = (
-            "No significant installation or repair-scope concerns were identified in the "
-            "submitted proposal."
-        )
-
-    # The banner, takeaway, and bottom line all use the canonical policy summary.
-    plain_english = recommendation
+    plain_english = clean(analysis.homeowner_takeaway)
+    bottom_line = clean(analysis.bottom_line)
+    contractor_questions = clean_items(analysis.contractor_questions)
 
     return f"""
 <!DOCTYPE html>
@@ -2412,9 +3222,14 @@ ul {{
         "No major positive findings were specifically documented."
     )}
 
+    {list_section(
+        "Questions to Ask Your Contractor",
+        contractor_questions
+    )}
+
     <div class="bottom-line">
         <h2>Bottom Line</h2>
-        <p>{esc(recommendation or verdict_explanation)}</p>
+        <p>{esc(bottom_line)}</p>
     </div>
 
     <div class="final-box">
@@ -2535,7 +3350,7 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
     classification = classify_quotes(all_quotes_text)
     print("QUOTE CLASSIFICATION:", classification.model_dump())
 
-    analysis_knowledge = get_analysis_knowledge(classification)
+    analysis_knowledge = get_analysis_knowledge(classification, all_quotes_text)
     print("ANALYSIS KNOWLEDGE LENGTH:", len(analysis_knowledge))
     
     contractor_vetting_results = ""
@@ -2673,6 +3488,8 @@ Never accuse a contractor of dishonesty.
 
 Keep the review practical, homeowner-friendly, and honest.
 
+{CONTRACTOR_QUESTION_RULES}
+
 SELECTED QUOTE CLASSIFICATION:
 
 {classification.model_dump_json(indent=2)}
@@ -2709,8 +3526,12 @@ Submitted HVAC Quote(s):
         response_format=HVACAnalysis,
     )
 
-    analysis = completion.choices[0].message.parsed
-    analysis = apply_decision_policy(analysis)
+    raw_analysis = completion.choices[0].message.parsed
+    analysis = finalize_customer_analysis(
+        raw_analysis,
+        quote_text=all_quotes_text,
+        quote_count=len(request.files),
+    )
 
     send_review_email(
         customer_name=customer_name,
