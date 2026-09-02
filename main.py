@@ -43,12 +43,39 @@ TechnicalSupport = Literal[
     "PARTIALLY_SUPPORTED",
     "UNSUPPORTED",
 ]
+TechnicalMateriality = Literal[
+    "PRIMARY",
+    "MATERIAL_SECONDARY",
+    "MINOR",
+]
+DiagnosticEvidenceStatus = Literal[
+    "CONFIRMED",
+    "ADEQUATE",
+    "INCOMPLETE",
+    "ABSENT",
+    "CONTRADICTORY",
+]
+ScopeSupport = Literal[
+    "APPROPRIATE",
+    "PARTIALLY_DEFINED",
+    "UNSUPPORTED",
+]
 PricingTransparency = Literal[
     "ADEQUATE",
     "LIMITED",
     "ABSENT",
     "NOT_APPLICABLE",
 ]
+
+
+class TechnicalEvidenceAssessment(BaseModel):
+    subject: str
+    materiality: TechnicalMateriality
+    diagnostic_evidence_status: DiagnosticEvidenceStatus
+    scope_support: ScopeSupport
+    documented_evidence: List[str] = Field(default_factory=list)
+    material_gaps: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
 
 
 class HVACDecision(BaseModel):
@@ -74,6 +101,9 @@ class HVACAnalysis(BaseModel):
     contractor_questions: List[str] = Field(default_factory=list)
     recommendation: str
     decision: HVACDecision
+    technical_assessments: List[TechnicalEvidenceAssessment] = Field(
+        default_factory=list
+    )
     banner_explanation: str = ""
     homeowner_takeaway: str = ""
     bottom_line: str = ""
@@ -2111,10 +2141,48 @@ Evaluate whether the contractor's proposed diagnosis, equipment, scope, installa
 
 STRUCTURED DECISION FACTS
 
-Populate decision.technical_support using only the proposal evidence:
-- SUPPORTED: the material diagnosis and proposed technical scope are reasonably supported.
-- PARTIALLY_SUPPORTED: some material portion needs clarification or additional support before approval.
-- UNSUPPORTED: a major diagnosis or proposed scope lacks adequate support and warrants another professional opinion.
+Populate technical_assessments for every PRIMARY or MATERIAL_SECONDARY diagnosis or
+scope item. Extract the technical facts; Python derives the final whole-proposal
+decision.technical_support from these assessments.
+
+MATERIALITY
+- PRIMARY: the diagnosis or scope item directly drives whether the homeowner should authorize the main proposed work.
+- MATERIAL_SECONDARY: important secondary work that could affect approval but is not the sole basis for the proposal.
+- MINOR: a nonmaterial detail or secondary item that must not control overall technical support.
+
+DIAGNOSTIC EVIDENCE STATUS
+- CONFIRMED: direct documented evidence clearly isolates or establishes the diagnosis.
+- ADEQUATE: documented evidence reasonably supports the diagnosis even though every possible test is not shown.
+- INCOMPLETE: meaningful evidence points toward the diagnosis, but material isolation or evidence is missing.
+- ABSENT: no meaningful evidence supports the diagnosis beyond a symptom, assertion, or the recommendation itself.
+- CONTRADICTORY: documented evidence materially conflicts with the proposed diagnosis.
+
+SCOPE SUPPORT
+- APPROPRIATE: the proposed work logically follows from adequately supported evidence and materially necessary repair, completion, and verification steps are sufficiently defined.
+- PARTIALLY_DEFINED: the proposed work is technically plausible and related to documented evidence, but material diagnostic isolation, scope confirmation, or final verification is still missing and should be clarified before approval.
+- UNSUPPORTED: reserve this for major work that does not logically follow from documented findings, is unjustified by the evidence, addresses the wrong problem, lacks any meaningful technical basis, or is materially contradicted by documented evidence.
+
+RELATION BETWEEN EVIDENCE AND SCOPE
+- INCOMPLETE diagnostic evidence should normally pair with PARTIALLY_DEFINED scope when the proposed repair is plausible from the available evidence, no contradiction exists, and further testing is needed to isolate the condemned component.
+- Do not classify scope as UNSUPPORTED merely because additional diagnostic testing is needed or every conceivable test is not documented.
+- ABSENT or CONTRADICTORY evidence for PRIMARY work may appropriately pair with UNSUPPORTED scope.
+- A condenser fan that is not running while the condenser overheats and a high-pressure switch opens provides meaningful circumstantial evidence of a condenser-airflow problem. If voltage, capacitor, control, wiring, mechanical-obstruction, or motor testing does not isolate the motor, classify the motor evidence as INCOMPLETE and the plausible replacement scope as PARTIALLY_DEFINED, not UNSUPPORTED.
+- A burner-shutdown/flame-proving sequence can similarly make flame-sensor replacement plausible. If the sensor is not isolated from grounding, wiring, flame quality, positioning, or control issues, use INCOMPLETE evidence with PARTIALLY_DEFINED scope.
+- Do not require every possible test. Evaluate whether the documented combination of applicable tests reasonably isolates the proposed failed component.
+
+For every assessment, provide a specific subject, materiality, diagnostic evidence
+status, scope support, documented_evidence, material_gaps, and contradictions.
+Documented evidence must be copied or faithfully paraphrased from the proposal.
+
+Customer symptoms are not diagnostic evidence by themselves. A contractor's diagnosis
+statement is not evidence supporting itself. Pricing, itemization, price amount, and
+warranty are not diagnostic evidence. Optional best practices do not automatically make
+scope partial. Missing exact model or part numbers do not reduce diagnostic support unless
+compatibility materially depends on them. Do not reduce adequate evidence merely because
+every possible measurement is absent. Never invent measurements or findings.
+
+Populate decision.technical_support for schema compatibility, but understand that Python
+will overwrite it from technical_assessments for newly generated analyses.
 
 Populate decision.pricing_transparency separately from technical_support:
 - ADEQUATE: meaningful prices are separately identified for the relevant major cost components.
@@ -2210,6 +2278,51 @@ def get_analysis_knowledge(
     return "\n\n".join(selected_modules)
 
 
+def derive_technical_support(
+    assessments: List[TechnicalEvidenceAssessment],
+) -> TechnicalSupport:
+    """Derive support exclusively from structured technical evidence."""
+    relevant = [
+        assessment
+        for assessment in assessments
+        if assessment.materiality != "MINOR"
+    ]
+    primary = [
+        assessment
+        for assessment in relevant
+        if assessment.materiality == "PRIMARY"
+    ]
+    secondary = [
+        assessment
+        for assessment in relevant
+        if assessment.materiality == "MATERIAL_SECONDARY"
+    ]
+
+    if any(
+        assessment.diagnostic_evidence_status in {"ABSENT", "CONTRADICTORY"}
+        or assessment.scope_support == "UNSUPPORTED"
+        for assessment in primary
+    ):
+        return "UNSUPPORTED"
+
+    if any(
+        assessment.diagnostic_evidence_status == "INCOMPLETE"
+        or assessment.scope_support == "PARTIALLY_DEFINED"
+        for assessment in primary
+    ):
+        return "PARTIALLY_SUPPORTED"
+
+    if any(
+        assessment.diagnostic_evidence_status
+        in {"INCOMPLETE", "ABSENT", "CONTRADICTORY"}
+        or assessment.scope_support in {"PARTIALLY_DEFINED", "UNSUPPORTED"}
+        for assessment in secondary
+    ):
+        return "PARTIALLY_SUPPORTED"
+
+    return "SUPPORTED"
+
+
 def determine_verdict(decision: HVACDecision) -> Verdict:
     """Apply the single customer-verdict policy to structured analysis facts."""
     if decision.technical_support == "UNSUPPORTED":
@@ -2250,6 +2363,12 @@ Populate contractor_questions with zero to five material technical or scope ques
 Questions are assembled by purpose: diagnostic_evidence, cause_or_leak_investigation, repair_scope, verification, warranty, and pricing. Diagnostic evidence and cause questions come first, final verification must remain ahead of pricing, and only one pricing-category question may appear.
 
 Base questions only on required technical actions, material missing information, material technical concerns, or unresolved scope questions already supported by this analysis. Optional suggestions alone must not create questions. If the proposal is fully supported and no material clarification is needed, return an empty list.
+
+When technical_support is SUPPORTED, do not retain generic technical, compatibility,
+part-specification, scope, verification, or warranty questions unless a material concern
+of that purpose is explicitly present in required_actions, missing_information,
+installation_concerns, or red_flags. Missing exact part/model numbers and missing warranty
+language on a routine minor repair do not create questions by themselves.
 
 Order questions by importance: diagnostic support; scope or corrective action; safety or compatibility; completion and operational verification; material warranty clarification; then pricing transparency. Write plain, non-accusatory questions that are directly answerable by the contractor. Avoid unnecessary jargon, generic checklists, invented concerns, and duplicate versions of the same issue.
 
@@ -2524,16 +2643,43 @@ def contractor_question_category(question: str) -> str:
         )
     ):
         return "verification"
-    if "leak" in normalized or "cause" in normalized or "why" in normalized:
+    if "leak" in normalized or re.search(r"\b(?:cause|why)\b", normalized):
         return "cause_or_leak_investigation"
     if any(
         term in normalized
         for term in ("measurement", "testing", "test results", "evidence", "confirmed", "supports the conclusion")
     ):
         return "diagnostic_evidence"
+    if any(
+        term in normalized
+        for term in ("compatib", "part specification", "model number", "component rating")
+    ):
+        return "compatibility"
     if "warranty" in normalized or "coverage" in normalized:
         return "warranty"
     return "repair_scope"
+
+
+def material_contractor_question_categories(analysis: HVACAnalysis) -> set[str]:
+    """Identify question purposes backed by structured material unresolved concerns."""
+    material_sources = [
+        action
+        for action in analysis.decision.required_actions
+        if not is_equivalent_itemization_action(action)
+    ]
+    material_sources.extend(analysis.red_flags)
+
+    for assessment in analysis.technical_assessments:
+        if assessment.materiality not in {"PRIMARY", "MATERIAL_SECONDARY"}:
+            continue
+        material_sources.extend(assessment.material_gaps)
+        material_sources.extend(assessment.contradictions)
+
+    return {
+        contractor_question_category(source)
+        for source in material_sources
+        if contractor_question_category(source) != "pricing"
+    }
 
 
 def deterministic_pricing_question(
@@ -2544,16 +2690,27 @@ def deterministic_pricing_question(
     if quote_count and quote_count > 1:
         return MULTI_QUOTE_PRICING_QUESTION
 
+    amount_match = re.search(
+        r"[$£€]\s*\d[\d,]*(?:\.\d{2})?",
+        " ".join((quote_text, analysis.pricing_review, analysis.project_overview)),
+    )
+    amount = amount_match.group(0).replace(" ", "") if amount_match else ""
+    total_phrase = (
+        f" included in the {amount} total"
+        if amount
+        else " included in the quoted total"
+    )
+
     if refrigerant_context(analysis, quote_text):
-        amount_match = re.search(
-            r"[$£€]\s*\d[\d,]*(?:\.\d{2})?",
-            " ".join((quote_text, analysis.pricing_review, analysis.project_overview)),
-        )
-        amount = amount_match.group(0).replace(" ", "") if amount_match else ""
-        total_phrase = f" included in the {amount} total" if amount else " included in the quoted total"
         return (
             "Can you provide an itemized breakdown of the refrigerant, labor, and "
             f"other charges{total_phrase}?"
+        )
+
+    if amount:
+        return (
+            "Can you provide an itemized breakdown of the parts, labor, and other "
+            f"charges{total_phrase}?"
         )
 
     return PRICING_CONTRACTOR_QUESTION
@@ -2771,12 +2928,21 @@ def build_contractor_questions(
                 "How will the refrigerant charge and cooling performance be verified after the work?",
             )
 
+    if analysis.decision.technical_support == "SUPPORTED":
+        material_categories = material_contractor_question_categories(analysis)
+        questions_by_category = {
+            category: question
+            for category, question in questions_by_category.items()
+            if category in material_categories
+        }
+
     priority = {
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
         "repair_scope": 2,
-        "verification": 3,
-        "warranty": 4,
+        "compatibility": 3,
+        "verification": 4,
+        "warranty": 5,
     }
     categorized_questions = sorted(
         questions_by_category.items(),
@@ -2799,6 +2965,27 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+
+    ai_technical_support = finalized.decision.technical_support
+    if finalized.technical_assessments:
+        derived_technical_support = derive_technical_support(
+            finalized.technical_assessments
+        )
+        finalized.decision.technical_support = derived_technical_support
+        print("AI TECHNICAL SUPPORT:", ai_technical_support)
+        print("DERIVED TECHNICAL SUPPORT:", derived_technical_support)
+        print(
+            "TECHNICAL ASSESSMENTS:",
+            [
+                assessment.model_dump()
+                for assessment in finalized.technical_assessments
+            ],
+        )
+    else:
+        print(
+            "TECHNICAL SUPPORT FALLBACK: no structured technical assessments; "
+            f"preserving AI value {ai_technical_support}."
+        )
 
     normalize_project_overview(finalized, quote_text)
     normalize_refrigerant_customer_fields(finalized, quote_text)

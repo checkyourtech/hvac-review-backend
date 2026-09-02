@@ -1,12 +1,14 @@
 import html
 import re
 import unittest
+from pathlib import Path
 
 from main import (
     CONTRACTOR_QUESTION_RULES,
     HVACAnalysis,
     HVACDecision,
     PRICING_REQUIRED_ACTION,
+    TechnicalEvidenceAssessment,
     apply_decision_policy,
     build_report_html as render_finalized_html,
     finalize_customer_analysis,
@@ -27,6 +29,7 @@ def make_analysis(
     pricing_review="Pricing transparency was reviewed separately.",
     missing_information="No material information is missing.",
     installation_concerns="No material installation concerns were identified.",
+    technical_assessments=None,
 ):
     return HVACAnalysis(
         project_overview="Test proposal",
@@ -49,6 +52,19 @@ def make_analysis(
             optional_suggestions=optional_suggestions or [],
             verdict_reasons=verdict_reasons or [],
         ),
+        technical_assessments=technical_assessments or [],
+    )
+
+
+def supported_assessment(*, materiality="PRIMARY", gaps=None):
+    return TechnicalEvidenceAssessment(
+        subject="Supported proposed work",
+        materiality=materiality,
+        diagnostic_evidence_status="CONFIRMED",
+        scope_support="APPROPRIATE",
+        documented_evidence=["Documented testing supports the proposed work."],
+        material_gaps=gaps or [],
+        contradictions=[],
     )
 
 
@@ -299,6 +315,110 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertNotIn("measurement", questions[0].lower())
         self.assertNotIn("model number", questions[0].lower())
 
+    def test_supported_electrical_fixture_suppresses_generic_questions(self):
+        quote_text = Path("electrical_test.txt").read_text(encoding="utf-8")
+        analysis = make_analysis(
+            pricing_transparency="LIMITED",
+            missing_information=(
+                "No important missing information was identified that appears likely "
+                "to change the recommendation."
+            ),
+            installation_concerns=(
+                "No significant installation or repair-scope concerns were identified "
+                "in the submitted proposal."
+            ),
+            contractor_questions=[
+                "Can you confirm the replacement parts' specifications and compatibility?",
+                "Is there any warranty on the capacitor and contactor?",
+                "Can you provide separate parts and labor pricing?",
+            ],
+            technical_assessments=[supported_assessment()],
+        )
+
+        finalized = finalize_customer_analysis(analysis, quote_text=quote_text)
+
+        self.assertEqual(
+            finalized.contractor_questions,
+            [
+                "Can you provide an itemized breakdown of the parts, labor, and "
+                "other charges included in the $725 total?"
+            ],
+        )
+
+    def test_supported_adequate_suppresses_generic_ai_questions(self):
+        analysis = make_analysis(
+            contractor_questions=[
+                "What are the exact replacement part model numbers?",
+                "What warranty covers the routine repair?",
+            ],
+            technical_assessments=[supported_assessment()],
+        )
+
+        finalized = finalize_customer_analysis(analysis)
+
+        self.assertEqual(finalized.contractor_questions, [])
+
+    def test_optional_suggestion_does_not_create_supported_question(self):
+        analysis = make_analysis(
+            optional_suggestions=["Consider asking for the exact replacement model."],
+            contractor_questions=["What exact replacement model will be installed?"],
+        )
+
+        finalized = finalize_customer_analysis(analysis)
+
+        self.assertEqual(finalized.contractor_questions, [])
+
+    def test_material_compatibility_action_retains_compatibility_question(self):
+        question = "Is the proposed replacement component compatible with the existing system?"
+        analysis = make_analysis(
+            required_actions=[
+                "Confirm compatibility because the quoted component rating conflicts "
+                "with the existing equipment rating."
+            ],
+            contractor_questions=[question],
+        )
+
+        finalized = finalize_customer_analysis(analysis)
+
+        self.assertEqual(finalized.contractor_questions, [question])
+
+    def test_material_warranty_action_retains_warranty_question(self):
+        question = "What warranty coverage applies to this major repair?"
+        analysis = make_analysis(
+            required_actions=[
+                "Clarify warranty coverage because it is material to the risk of this major repair."
+            ],
+            contractor_questions=[question],
+        )
+
+        finalized = finalize_customer_analysis(analysis)
+
+        self.assertEqual(finalized.contractor_questions, [question])
+
+    def test_supported_structured_secondary_gap_retains_applicable_question(self):
+        question = "Is the secondary component compatible with the existing equipment?"
+        analysis = make_analysis(
+            technical_assessments=[
+                supported_assessment(),
+                supported_assessment(
+                    materiality="MATERIAL_SECONDARY",
+                    gaps=[
+                        "Compatibility of the secondary component with the existing "
+                        "equipment remains a material clarification."
+                    ],
+                ),
+            ],
+            contractor_questions=[
+                "Will the wiring inspection look for any other useful information?",
+                question,
+            ],
+        )
+
+        finalized = finalize_customer_analysis(analysis)
+
+        self.assertEqual(finalized.decision.technical_support, "SUPPORTED")
+        self.assertEqual(finalized.contractor_questions, [question])
+
     def test_partial_low_refrigerant_questions_are_technical_first(self):
         technical_questions = [
             "What measurements showed that the system is low on refrigerant?",
@@ -416,6 +536,7 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
 
     def test_multi_quote_questions_identify_relevant_quote(self):
         analysis = make_analysis(
+            technical_support="PARTIALLY_SUPPORTED",
             pricing_transparency="LIMITED",
             contractor_questions=[
                 "For Quote 2, what testing supports the compressor replacement?"
