@@ -127,8 +127,8 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
             analysis.decision.verdict,
             "REVIEW_BEFORE_APPROVING",
         )
-        self.assertIn("technical proposal appears supported", analysis.recommendation)
-        self.assertIn("itemization is absent", analysis.recommendation)
+        self.assertIn("work itself looks well supported", analysis.recommendation)
+        self.assertIn("does not break down the price", analysis.recommendation)
         self.assertIn(PRICING_REQUIRED_ACTION, analysis.decision.required_actions)
         self.assertEqual(analysis.red_flags, [])
 
@@ -137,8 +137,8 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
             make_analysis(pricing_transparency="LIMITED")
         )
         self.assertIn(PRICING_REQUIRED_ACTION, analysis.decision.required_actions)
-        self.assertIn("pricing transparency is limited", analysis.recommendation)
-        self.assertIn("does not imply dishonesty", analysis.recommendation)
+        self.assertIn("price breakdown is limited", analysis.recommendation)
+        self.assertIn("does not mean the contractor is dishonest", analysis.recommendation)
 
     def test_existing_equivalent_itemization_action_is_not_duplicated(self):
         existing_action = "Obtain a detailed cost breakdown before signing."
@@ -237,12 +237,12 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertIn(PRICING_REQUIRED_ACTION, analysis.decision.required_actions)
         self.assertIn("REVIEW BEFORE APPROVING", report)
         self.assertLessEqual(len(banner), 140)
-        self.assertIn("technically supported", banner)
-        self.assertIn("quoted price", banner)
+        self.assertIn("work itself looks well supported", banner)
+        self.assertIn("price", banner)
         self.assertNotIn("Major cost components remain bundled", banner)
         self.assertNotIn(PRICING_REQUIRED_ACTION, banner)
 
-        self.assertIn("technically supported", takeaway)
+        self.assertIn("planned work make sense", takeaway)
         self.assertIn("Measured capacitance and visible contact damage", takeaway)
         self.assertIn("No major technical red flags", takeaway)
         self.assertIn("clearer breakdown", takeaway)
@@ -252,7 +252,7 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertIn("individual component and labor charges", pricing)
 
         self.assertLessEqual(len(bottom_line), 180)
-        self.assertIn("technically supported", bottom_line)
+        self.assertIn("planned work make sense", bottom_line)
         self.assertIn("requested price breakdown", bottom_line)
         self.assertNotIn("Major cost components remain bundled", bottom_line)
         self.assertNotIn(PRICING_REQUIRED_ACTION, bottom_line)
@@ -281,12 +281,12 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
 
         self.assertEqual(analysis.decision.verdict, "GET_A_SECOND_OPINION")
         self.assertIn("GET A SECOND OPINION", report)
-        self.assertIn("does not adequately support", banner)
+        self.assertIn("does not show enough evidence", banner)
         self.assertNotIn("quoted price", banner)
-        self.assertIn("second professional opinion", takeaway)
+        self.assertIn("another opinion", takeaway)
         self.assertIn("technical concern is primary", takeaway)
-        self.assertIn("not adequately supported", bottom_line)
-        self.assertIn("second professional opinion", bottom_line)
+        self.assertIn("does not show enough evidence", bottom_line)
+        self.assertIn("another opinion", bottom_line)
         self.assertNotIn("price breakdown", bottom_line)
 
     def test_proceed_report_remains_concise_and_supported(self):
@@ -299,9 +299,77 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
 
         self.assertEqual(analysis.decision.verdict, "PROCEED")
         self.assertIn("PROCEED", report)
-        self.assertIn("supported", banner)
-        self.assertIn("technically supported", takeaway)
-        self.assertIn("technically supported", bottom_line)
+        self.assertIn("make sense", banner)
+        self.assertIn("planned work make sense", takeaway)
+        self.assertIn("planned work make sense", bottom_line)
+
+    def test_customer_summaries_use_plainspoken_language(self):
+        prohibited = (
+            "material technical questions",
+            "proposed technical scope",
+            "reasonable assurance",
+            "resolve the required",
+            "the submitted information does not adequately support",
+            "indicates some level of",
+            "the proposal claims",
+            "provides some assurance",
+            "specific rejection criteria",
+            "substantiate",
+            "indicates a potential",
+        )
+        cases = (
+            make_analysis(
+                technical_support="PARTIALLY_SUPPORTED",
+                required_actions=["Ask the contractor to document the failed area."],
+            ),
+            make_analysis(technical_support="UNSUPPORTED"),
+            make_analysis(pricing_transparency="LIMITED"),
+            make_analysis(),
+        )
+
+        for raw in cases:
+            with self.subTest(
+                technical_support=raw.decision.technical_support,
+                pricing=raw.decision.pricing_transparency,
+            ):
+                analysis = finalize_customer_analysis(raw)
+                customer_text = " ".join(
+                    (
+                        analysis.recommendation,
+                        analysis.banner_explanation,
+                        analysis.homeowner_takeaway,
+                        analysis.bottom_line,
+                    )
+                ).lower()
+                for phrase in prohibited:
+                    self.assertNotIn(phrase, customer_text)
+
+                self.assertTrue(
+                    any(
+                        phrase in customer_text
+                        for phrase in (
+                            "the quote",
+                            "the contractor",
+                            "planned work",
+                            "the work itself",
+                        )
+                    )
+                )
+
+    def test_customer_writing_prompt_requires_concrete_plain_language(self):
+        from main import GLOBAL_ANALYSIS_RULES
+
+        prompt = re.sub(r"\s+", " ", GLOBAL_ANALYSIS_RULES.lower())
+        self.assertIn("experienced hvac technician", prompt)
+        self.assertIn("short sentences", prompt)
+        self.assertIn("concrete findings", prompt)
+        self.assertIn("do not expose internal classifications", prompt)
+        self.assertIn("never invent one", prompt)
+        self.assertIn('avoid stiff phrases such as "the proposal claims,"', prompt)
+        self.assertIn("the contractor found", prompt)
+        self.assertIn("sound comfortable for a homeowner to say out loud", prompt)
+        self.assertIn("state warranty terms directly", prompt)
+        self.assertIn("plain language does not mean removing technical detail", prompt)
 
     def test_supported_capacitor_with_limited_pricing_has_only_pricing_question(self):
         analysis = make_analysis(pricing_transparency="LIMITED")

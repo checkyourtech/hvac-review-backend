@@ -239,6 +239,27 @@ class FixtureCalibrationTests(unittest.TestCase):
         "repair_replace_sizing_bad_test.txt": [
             assessment("ABSENT", "UNSUPPORTED")
         ],
+        "combustion_heat_exchanger_good_test.txt": [
+            assessment(
+                "CONFIRMED",
+                "APPROPRIATE",
+                subject="Heat-exchanger failure and furnace replacement",
+            )
+        ],
+        "combustion_heat_exchanger_partial_test.txt": [
+            assessment(
+                "INCOMPLETE",
+                "PARTIALLY_DEFINED",
+                subject="Suspected heat-exchanger failure and furnace replacement",
+            )
+        ],
+        "combustion_heat_exchanger_bad_test.txt": [
+            assessment(
+                "ABSENT",
+                "UNSUPPORTED",
+                subject="Heat-exchanger condemnation and furnace replacement",
+            )
+        ],
     }
     EXPECTED = {
         "electrical_test.txt": "SUPPORTED",
@@ -254,6 +275,9 @@ class FixtureCalibrationTests(unittest.TestCase):
         "electrical_flame_sensor_bad_test.txt": "PARTIALLY_SUPPORTED",
         "repair_replace_sizing_good_test.txt": "SUPPORTED",
         "repair_replace_sizing_bad_test.txt": "UNSUPPORTED",
+        "combustion_heat_exchanger_good_test.txt": "SUPPORTED",
+        "combustion_heat_exchanger_partial_test.txt": "PARTIALLY_SUPPORTED",
+        "combustion_heat_exchanger_bad_test.txt": "UNSUPPORTED",
     }
 
     def test_fixture_calibration_matrix(self):
@@ -295,6 +319,33 @@ class FixtureCalibrationTests(unittest.TestCase):
             "scope as PARTIALLY_DEFINED, not UNSUPPORTED",
             GLOBAL_ANALYSIS_RULES,
         )
+
+    def test_heat_exchanger_fixture_assessment_calibration(self):
+        expected = {
+            "combustion_heat_exchanger_good_test.txt": (
+                "CONFIRMED",
+                "APPROPRIATE",
+                "SUPPORTED",
+            ),
+            "combustion_heat_exchanger_partial_test.txt": (
+                "INCOMPLETE",
+                "PARTIALLY_DEFINED",
+                "PARTIALLY_SUPPORTED",
+            ),
+            "combustion_heat_exchanger_bad_test.txt": (
+                "ABSENT",
+                "UNSUPPORTED",
+                "UNSUPPORTED",
+            ),
+        }
+
+        for fixture, (evidence_status, scope_status, support) in expected.items():
+            with self.subTest(fixture=fixture):
+                item = self.CASES[fixture][0]
+                self.assertEqual(item.materiality, "PRIMARY")
+                self.assertEqual(item.diagnostic_evidence_status, evidence_status)
+                self.assertEqual(item.scope_support, scope_status)
+                self.assertEqual(derive_technical_support([item]), support)
 
 
 class TechnicalSupportEndToEndTests(unittest.TestCase):

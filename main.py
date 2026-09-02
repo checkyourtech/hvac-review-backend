@@ -112,6 +112,7 @@ class HVACAnalysis(BaseModel):
 class AnalysisModule(str, Enum):
     COMPRESSOR = "compressor"
     REFRIGERANT_SYSTEM = "refrigerant_system"
+    HEAT_EXCHANGER = "heat_exchanger"
     ELECTRICAL_CONTROLS = "electrical_controls"
     MOTORS = "motors"
     FURNACE_COMBUSTION = "furnace_combustion"
@@ -294,6 +295,7 @@ List important information that appears necessary to understand the proposed wor
 Choose all relevant analysis modules from:
 - compressor
 - refrigerant_system
+- heat_exchanger
 - electrical_controls
 - motors
 - furnace_combustion
@@ -308,6 +310,19 @@ Use only module names from this list. Do not invent or return other module names
 Select motors when diagnosis or replacement involves a blower motor, ECM module, condenser fan motor, inducer motor, or another HVAC motor.
 
 Select furnace_combustion when the proposal involves furnace draft proving, an inducer sequence, a pressure switch, an igniter, flame proving, or furnace combustion/control safety sequence.
+
+Select heat_exchanger when the proposal involves a cracked, failed, breached, split,
+separated, perforated, or holed heat exchanger; heat-exchanger replacement; borescope,
+camera, photo, or combustion findings used to condemn a heat exchanger; or furnace
+replacement primarily justified by heat-exchanger failure.
+
+Heat_exchanger must be independently selectable. Do not use furnace_combustion as a
+substitute for heat-exchanger integrity analysis. Do not select heat_exchanger for an
+igniter, flame sensor, inducer, pressure switch, gas valve, thermostat, or generic furnace
+control problem unless heat-exchanger integrity is materially part of the diagnosis.
+
+Heat-exchanger cases may also select furnace_combustion, repair_vs_replace, warranty, or
+commissioning when those areas are genuinely relevant to the submitted scope.
 
 Select duct_airflow when the proposal involves airflow, static pressure, blower airflow configuration, duct restrictions, supply or return restrictions, or ductwork evaluation.
 
@@ -2010,6 +2025,116 @@ For missing_information, prioritize: the measurements establishing low charge; w
 When decision.technical_support is PARTIALLY_SUPPORTED or UNSUPPORTED because the low-charge evidence is incomplete, do not list the low-refrigerant diagnosis itself as a good_sign. Credit only independently documented favorable facts such as meaningful warranty coverage or an appropriate included verification step.
 """
 
+HEAT_EXCHANGER_ANALYSIS_RULES = """
+HEAT EXCHANGER INTEGRITY AND CONDEMNATION
+
+Evaluate whether documented evidence reasonably supports heat-exchanger failure and any
+furnace replacement specifically justified by that failure. Do not duplicate general
+repair-versus-replacement economics or furnace ignition/control analysis.
+
+DIRECT PHYSICAL EVIDENCE
+
+Strong direct evidence may include a clearly documented crack, hole, split, separation,
+failed seam, cell failure, corrosion perforation, manufacturer-defined rejection
+condition, or another localized physical breach. Borescope, camera, photo, video, or
+accessible visual documentation should identify the specific failed area when the
+proposal relies on it.
+
+Direct physical evidence that clearly meets an applicable failure criterion may be enough
+to support condemnation without every possible combustion test. Do not downgrade an
+otherwise confirmed failure merely because the proposal omits an unnecessary additional
+CO test, combustion analysis, temperature-rise reading, gas-pressure reading, borescope,
+camera, flame-disturbance observation, or pressure test.
+
+SUPPORTING OR CORROBORATING EVIDENCE
+
+Relevant supporting evidence may include flame disturbance when the circulating blower
+starts, rollout or abnormal flame behavior, elevated flue-gas CO, elevated supply or
+ambient CO, abnormal combustion analysis, combustion instability, abnormal draft or
+venting context, abnormal temperature rise, and relevant inducer, gas-pressure, venting,
+or airflow findings.
+
+These findings can support a combustion-safety or heat-exchanger concern, but they do not
+automatically prove a cracked heat exchanger by themselves. Elevated CO is not automatic
+proof of a crack. Flame movement when the blower starts is not automatic proof of a crack.
+Use these findings with the total documented evidence and distinguish a credible concern
+requiring confirmation from a confirmed physical failure.
+
+WEAK OR NON-DIAGNOSTIC EVIDENCE
+
+Furnace age, rust alone, discoloration alone, a homeowner complaint, high utility bills,
+model reputation, a generic safety warning, inability to see the exchanger clearly, a
+simple visual suspicion without localization, a recommendation to replace, or a statement
+that the technician says it is cracked do not establish heat-exchanger failure by
+themselves. A diagnosis statement does not support itself.
+
+SAFETY AND PROPORTIONALITY
+
+Do not minimize a documented physical failure or tell a homeowner to operate equipment
+that the proposal documents as having a confirmed dangerous condition. Do not overstate
+an unconfirmed concern, manufacture carbon-monoxide danger when no CO evidence is
+documented, or remotely declare the exchanger safe or unsafe beyond the submitted facts.
+Distinguish confirmed failure from a condition warranting further in-person inspection.
+
+TECHNICAL EVIDENCE ASSESSMENT
+
+Create a PRIMARY TechnicalEvidenceAssessment for heat-exchanger failure and furnace
+replacement due to the exchanger condition.
+
+- CONFIRMED: direct documented evidence clearly establishes failure, such as a localized
+  crack, hole, separation, borescope/photo evidence, or a manufacturer rejection criterion.
+- ADEQUATE: the total documented evidence strongly and reasonably establishes failure even
+  though every possible diagnostic method is not documented.
+- INCOMPLETE: meaningful visual or combustion evidence raises a credible concern, but the
+  failure is not adequately localized or confirmed.
+- ABSENT: there is no meaningful evidence beyond age, assertion, suspicion, warning, or the
+  replacement recommendation itself.
+- CONTRADICTORY: documented evidence materially conflicts with the proposed condemnation.
+
+Use scope_support APPROPRIATE when confirmed or adequately supported failure logically
+supports the proposed repair/replacement and materially necessary safety, startup, and
+verification scope is coherent. Use PARTIALLY_DEFINED when the concern is credible but
+confirmation or material replacement scope remains unresolved. Use UNSUPPORTED when
+replacement is justified by heat-exchanger failure without meaningful evidence, the work
+does not follow from the findings, or documented evidence contradicts condemnation.
+
+REPORT EMPHASIS
+
+Explain the actual physical or corroborating evidence in equipment_analysis and good_signs
+when supported. For partial cases, prioritize the missing confirmation in
+missing_information and contractor_questions. For unsupported cases, ask for actual
+inspection evidence or applicable rejection criteria before furnace replacement. Do not
+generate generic heat-exchanger questions when direct failure is already adequately
+documented.
+
+EVIDENCE SUFFICIENCY, NOT A TEST CHECKLIST
+
+For an unsupported heat-exchanger condemnation, the customer-facing problem is that the
+quote does not document meaningful evidence establishing failure. It is not that the
+contractor omitted a universal checklist. Never describe combustion analysis, CO testing,
+temperature-rise testing, gas-pressure testing, flame-disturbance observation, borescope
+inspection, photography, or any other individual method as mandatory for every
+heat-exchanger diagnosis.
+
+In missing_information, focus on the undocumented failed area or the absence of other
+meaningful inspection or test evidence confirming the diagnosis. Examples of evidence
+may include a photo, borescope image, documented crack, hole or separation, a relevant
+manufacturer failure condition, or relevant combustion findings. Present these as
+possible ways to support the diagnosis, not a list of tests that must all be performed.
+
+In red_flags, identify the unsupported condemnation or furnace-replacement recommendation
+once. Do not create separate red flags for each optional test that was not documented, and
+do not call missing combustion or safety tests the defect when the actual defect is lack
+of meaningful evidence supporting heat-exchanger failure.
+
+In contractor_questions, ask what specifically confirms the failure and whether the
+contractor can show the failed area or explain the inspection finding. Do not ask why a
+particular test was not performed unless the quote specifically relies on that type of
+finding and its missing result is important to evaluating the stated diagnosis. Questions
+must seek supporting evidence without prescribing combustion analysis, CO measurement,
+temperature rise, or another single diagnostic method.
+"""
+
 ANALYSIS_MODULES: dict[AnalysisModule, str] = {
     AnalysisModule.COMPRESSOR: "\n\n".join(
         [
@@ -2058,6 +2183,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
             REFRIGERANT_DECISION_PRIORITY_RULES,
         ]
     ),
+    AnalysisModule.HEAT_EXCHANGER: HEAT_EXCHANGER_ANALYSIS_RULES,
     AnalysisModule.ELECTRICAL_CONTROLS: "\n\n".join(
         [_electrical_core, _electrical_scope, ELECTRICAL_POSITIVE_EVIDENCE_RULES]
     ),
@@ -2117,7 +2243,6 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
 }
 
 PHASE_2_MODULE_GAPS = (
-    "heat_exchanger",
     "equipment_matching",
     "sizing",
     "lineset",
@@ -2221,6 +2346,59 @@ Do not require experience with an exact equipment model or model number merely b
 CUSTOMER-FACING WRITING
 
 Keep recommendation consistent with the structured facts. Clearly distinguish technical quality from pricing transparency. Do not turn pricing-transparency concerns, optional suggestions, or minor missing details into technical red flags.
+
+Write like an experienced HVAC technician explaining the quote to a homeowner across the
+kitchen table: knowledgeable, calm, plainspoken, independent, and direct. Use short
+sentences, concrete findings, and familiar terms such as "the quote," "the contractor,"
+"the system," and "the repair." Explain what was documented, what is still unknown, and
+why it matters. Do not expose internal classifications such as technical support,
+materiality, scope support, or evidence status.
+
+Avoid compliance-memo language such as "material technical questions," "proposed
+technical scope," "reasonable assurance," "materially supported," "resolve the required
+items," "the submitted information does not adequately support," "warrants further
+consideration," "with regard to," or "indicates some level of." Use "applicable criteria"
+in homeowner-facing prose only when a specific standard or manufacturer criterion truly
+matters.
+
+Also avoid stiff phrases such as "the proposal claims," "provides some assurance,"
+"observed conditions," "specific rejection criteria," "substantiate," "warrants,"
+"pertinent," "materially," or "indicates a potential" when everyday wording says the
+same thing. Attribute a finding naturally: "the contractor found," "the quote shows,"
+"the technician measured," or "the contractor suspects." Say what would confirm the
+finding instead of asking the homeowner to substantiate a claim.
+
+Keep useful HVAC terms such as heat exchanger, CO, borescope, manifold pressure, and
+combustion analysis when they matter. Plain language does not mean removing technical
+detail. Connect the details conversationally: explain which findings are worth taking
+seriously, what the quote does not clearly show, and whether those findings confirm the
+diagnosis or simply justify a closer look.
+
+SECTION VOICE
+- equipment_analysis: Explain naturally what evidence supports the contractor, what is
+  missing, and whether the conclusion makes sense. Use the actual measurement when one is
+  documented; never invent one.
+- missing_information: Write actionable prose, not a data dump. Focus on what the
+  homeowner should ask the contractor to show or explain and why it could affect approval.
+  Prefer direct wording such as "The quote doesn't clearly show where the heat exchanger
+  has failed" over abstract wording such as "The proposal lacks visible proof."
+- installation_concerns: Describe the practical adequacy of the repair or installation
+  scope and any important unresolved issue in field language.
+- red_flags: Keep each item short, specific, and concrete. State the actual unsupported
+  diagnosis, missing evidence, unsafe condition, or scope problem instead of using generic
+  labels.
+- good_signs: Credit the actual measurement, observed condition, included work step,
+  verification, or warranty. State warranty terms directly instead of saying they provide
+  assurance. Do not add abstract reassurance or generic praise.
+- contractor_questions: Write natural, directly answerable homeowner questions. Avoid
+  formal phrasing and unnecessary jargon. Each question should sound comfortable for a
+  homeowner to say out loud. Prefer "What specifically makes you believe the heat
+  exchanger has failed?" over a formal request for evidence supporting a claim. Prefer
+  "Can you show me what condition makes this heat exchanger fail inspection?" over a
+  request for specific rejection criteria.
+
+Plain language must not change the facts, invent measurements or diagnoses, remove a
+material concern, weaken a documented safety issue, or change any structured decision.
 """
 
 def _quote_contains_price(quote_text: str) -> bool:
@@ -2618,6 +2796,160 @@ def normalize_refrigerant_customer_fields(
         analysis.red_flags = list(dict.fromkeys(retained_flags))
 
 
+def primary_heat_exchanger_assessment(
+    analysis: HVACAnalysis,
+) -> Optional[TechnicalEvidenceAssessment]:
+    """Return the structured primary heat-exchanger assessment, when present."""
+    for assessment in analysis.technical_assessments:
+        normalized_subject = re.sub(
+            r"[-_]+", " ", str(assessment.subject or "").lower()
+        )
+        if (
+            assessment.materiality == "PRIMARY"
+            and "heat exchanger" in normalized_subject
+        ):
+            return assessment
+    return None
+
+
+def heat_exchanger_related_customer_text(value: str) -> bool:
+    """Identify customer text about exchanger condemnation or diagnostic methods."""
+    normalized = " ".join(str(value or "").lower().split())
+    return any(
+        term in normalized
+        for term in (
+            "heat exchanger",
+            "combustion",
+            "combustion analysis",
+            "flue-gas",
+            "flue gas",
+            "ambient co",
+            "co measurement",
+            "co level",
+            "temperature rise",
+            "manifold pressure",
+            "gas pressure",
+            "borescope",
+            "failed area",
+            "cracked furnace",
+            "furnace replacement",
+        )
+    )
+
+
+def normalize_heat_exchanger_customer_fields(analysis: HVACAnalysis) -> None:
+    """Align exchanger-facing prose with the structured evidence category."""
+    assessment = primary_heat_exchanger_assessment(analysis)
+    if assessment is None:
+        return
+
+    status = assessment.diagnostic_evidence_status
+    no_meaningful_evidence = status == "ABSENT" or (
+        analysis.decision.technical_support == "UNSUPPORTED"
+        and not assessment.documented_evidence
+    )
+
+    unrelated_flags = [
+        flag
+        for flag in analysis.red_flags
+        if not heat_exchanger_related_customer_text(flag)
+    ]
+    unrelated_questions = [
+        question
+        for question in analysis.contractor_questions
+        if not heat_exchanger_related_customer_text(question)
+    ]
+
+    if no_meaningful_evidence:
+        analysis.equipment_analysis = (
+            "The quote says the heat exchanger has failed, but it doesn't show the "
+            "evidence used to confirm that diagnosis."
+        )
+        analysis.missing_information = (
+            "The quote doesn't clearly document the failed area or provide other "
+            "meaningful inspection or test evidence confirming heat-exchanger failure. "
+            "Before replacing the furnace, ask the contractor to show you what "
+            "specifically confirms the failure."
+        )
+        analysis.installation_concerns = (
+            "The furnace replacement should not be approved until the contractor "
+            "shows what confirms that the heat exchanger has failed."
+        )
+        analysis.red_flags = [
+            "The furnace is being recommended for replacement without clear "
+            "documentation showing that the heat exchanger has failed.",
+            *unrelated_flags,
+        ]
+        analysis.contractor_questions = [
+            "What evidence confirms that the heat exchanger has failed?",
+            "Can you show me the failed area or explain what inspection finding makes "
+            "this heat exchanger fail inspection?",
+            *unrelated_questions,
+        ]
+        return
+
+    if status == "INCOMPLETE":
+        evidence = [
+            " ".join(str(item or "").split()).rstrip(".")
+            for item in assessment.documented_evidence
+            if str(item or "").strip()
+        ]
+        if evidence:
+            analysis.equipment_analysis = (
+                "The documented findings include " + "; ".join(evidence) + ". "
+                "Those findings are worth taking seriously, but the quote doesn't "
+                "clearly show that the heat exchanger itself has failed."
+            )
+        else:
+            analysis.equipment_analysis = (
+                "There are reasons to take a closer look at the heat exchanger, but "
+                "the quote doesn't clearly show that it has failed."
+            )
+        analysis.missing_information = (
+            "The quote doesn't clearly document the failed area or otherwise confirm "
+            "that the heat exchanger itself has failed. Ask the contractor to show or "
+            "explain what specifically confirms the diagnosis."
+        )
+        analysis.installation_concerns = (
+            "The replacement scope may make sense if the heat exchanger is confirmed "
+            "bad, but the quote has not clearly established that yet."
+        )
+        analysis.red_flags = [
+            "The findings justify a closer look, but the heat-exchanger failure has "
+            "not been clearly confirmed.",
+            *unrelated_flags,
+        ]
+        analysis.contractor_questions = [
+            "What evidence confirms that the heat exchanger has failed?",
+            "Can you show me the failed area or explain what inspection finding confirms it?",
+            *unrelated_questions,
+        ]
+        return
+
+    if status in {"CONFIRMED", "ADEQUATE"}:
+        has_structured_gap = bool(
+            assessment.material_gaps or assessment.contradictions
+        )
+        if not has_structured_gap:
+            evidence = [
+                " ".join(str(item or "").split()).rstrip(".")
+                for item in assessment.documented_evidence
+                if str(item or "").strip()
+            ]
+            if evidence:
+                analysis.equipment_analysis = (
+                    "The quote documents " + "; ".join(evidence) + ". That evidence "
+                    "supports the heat-exchanger diagnosis."
+                )
+            if heat_exchanger_related_customer_text(analysis.missing_information):
+                analysis.missing_information = (
+                    "No important heat-exchanger evidence appears to be missing from "
+                    "the quote."
+                )
+            analysis.red_flags = unrelated_flags
+            analysis.contractor_questions = unrelated_questions
+
+
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
@@ -2731,45 +3063,40 @@ def build_customer_recommendation(decision: HVACDecision) -> str:
 
     if verdict == "GET_A_SECOND_OPINION":
         summary = (
-            "The proposal's major diagnosis or technical scope is not adequately "
-            "supported by the submitted information. Obtain a second professional "
-            "opinion before authorizing the work."
+            "The quote does not show enough evidence to support the main diagnosis or "
+            "repair. Get another opinion before moving forward."
         )
     elif decision.technical_support == "PARTIALLY_SUPPORTED":
         summary = (
-            "Part of the proposal is reasonably supported, but material technical or "
-            "scope questions should be resolved before approval."
+            "Some of the findings make sense, but the contractor still needs to answer "
+            "a few important questions before you approve the work."
         )
     elif decision.pricing_transparency == "LIMITED":
         summary = (
-            "The technical proposal appears supported, but pricing transparency is "
-            "limited. Meaningful itemization should be requested before approval. "
-            "This does not imply dishonesty, overcharging, or a technical deficiency."
+            "The work itself looks well supported, but the price breakdown is limited. "
+            "Ask for an itemized price before approving it. This alone does not mean "
+            "the contractor is dishonest, overcharging, or wrong about the repair."
         )
     elif decision.pricing_transparency == "ABSENT":
         summary = (
-            "The technical proposal appears supported, but pricing transparency is "
-            "limited because meaningful itemization is absent. Itemization should be "
-            "requested before approval. This does not imply dishonesty, overcharging, "
-            "or a technical deficiency."
+            "The work itself looks well supported, but the quote does not break down the "
+            "price. Ask for an itemized price before approving it. This alone does not "
+            "mean the contractor is dishonest, overcharging, or wrong about the repair."
         )
     elif decision.required_actions:
         summary = (
-            "The technical proposal appears supported, but required items should be "
-            "resolved before approval."
+            "The work itself looks supported, but there is still an important item to "
+            "clear up before you approve it."
         )
     else:
-        summary = (
-            "The submitted proposal is technically supported, and no material issues "
-            "need to be resolved before approval."
-        )
+        summary = "The diagnosis and planned work make sense based on what the quote shows."
 
     details = []
     if verdict != "PROCEED" and decision.verdict_reasons:
-        details.append("Reasons: " + "; ".join(decision.verdict_reasons))
+        details.append("Why: " + "; ".join(decision.verdict_reasons))
     if decision.required_actions:
         details.append(
-            "Required before approval: " + "; ".join(decision.required_actions)
+            "Before approving: " + "; ".join(decision.required_actions)
         )
 
     result = f"{display_verdict} — {summary}"
@@ -2782,29 +3109,28 @@ def build_banner_explanation(decision: HVACDecision) -> str:
     """Summarize the primary canonical reason without repeating report detail."""
     if decision.verdict == "GET_A_SECOND_OPINION":
         return (
-            "The submitted information does not adequately support the major "
-            "diagnosis or proposed technical scope."
+            "The quote does not show enough evidence to support this diagnosis or repair."
         )
 
     if decision.technical_support == "PARTIALLY_SUPPORTED":
         return (
-            "Material technical or scope questions need to be resolved before "
-            "the work is approved."
+            "There are still a few important questions the contractor should answer "
+            "before you approve the work."
         )
 
     if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
         return (
-            "The proposed work is technically supported, but the quoted price "
-            "should be clarified before authorization."
+            "The work itself looks well supported, but the price should be broken down "
+            "more clearly before you approve it."
         )
 
     if decision.required_actions:
         return (
-            "The proposed work is technically supported, but an important approval "
-            "item still needs to be resolved."
+            "The work itself looks supported, but there is still an important item to "
+            "clear up before you approve it."
         )
 
-    return "The diagnosis and proposed work are supported by the submitted information."
+    return "The diagnosis and planned work make sense based on what the quote shows."
 
 
 def build_homeowner_takeaway(
@@ -2815,9 +3141,8 @@ def build_homeowner_takeaway(
     """Interpret the canonical technical conclusion and immediate next step."""
     if decision.verdict == "GET_A_SECOND_OPINION":
         takeaway = (
-            "The submitted information does not adequately support the major diagnosis "
-            "or proposed technical scope. Obtain a second professional opinion before "
-            "authorizing the work."
+            "The quote does not show enough evidence to support the main diagnosis or "
+            "repair. Get another opinion before moving forward."
         )
         if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
             takeaway += (
@@ -2827,12 +3152,12 @@ def build_homeowner_takeaway(
 
     if decision.technical_support == "PARTIALLY_SUPPORTED":
         return (
-            "Part of the diagnosis or proposed scope is supported, but material technical "
-            "questions remain. Resolve the required technical or scope items before "
-            "approving the work."
+            "Some of the contractor's findings make sense, but the quote leaves important "
+            "questions about the diagnosis or planned work. Have the contractor answer "
+            "those questions before you approve the work."
         )
 
-    takeaway = "The diagnosis and proposed scope appear technically supported."
+    takeaway = "The diagnosis and planned work make sense based on what the quote shows."
     if good_signs:
         takeaway += f" One documented technical strength: {good_signs[0]}"
         if not takeaway.endswith((".", "!", "?")):
@@ -2845,9 +3170,9 @@ def build_homeowner_takeaway(
             " Before approving the work, ask for a clearer breakdown of the quoted total."
         )
     elif decision.required_actions:
-        takeaway += " Resolve the required approval item before authorizing the work."
+        takeaway += " Clear up the remaining approval item before moving forward."
     else:
-        takeaway += " No material issue needs to be resolved before approval."
+        takeaway += " Nothing important needs to be cleared up before approval."
 
     return takeaway
 
@@ -2856,31 +3181,31 @@ def build_bottom_line(decision: HVACDecision) -> str:
     """Give the canonical technical conclusion and final homeowner action."""
     if decision.verdict == "GET_A_SECOND_OPINION":
         return (
-            "The major diagnosis or proposed technical scope is not adequately supported. "
-            "Get a second professional opinion before authorizing the work."
+            "The quote does not show enough evidence to support the main diagnosis or "
+            "repair. Get another opinion before moving forward."
         )
 
     if decision.technical_support == "PARTIALLY_SUPPORTED":
         return (
-            "The proposal is only partially supported. Resolve the material technical or "
-            "scope questions before approving the work."
+            "There is enough here to keep investigating, but not enough to approve the "
+            "work yet. Have the contractor answer the remaining questions first."
         )
 
     if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
         return (
-            "The diagnosis and proposed work are technically supported. Move forward once "
-            "the contractor provides the requested price breakdown."
+            "The diagnosis and planned work make sense. Move forward once the contractor "
+            "provides the requested price breakdown."
         )
 
     if decision.required_actions:
         return (
-            "The diagnosis and proposed work are technically supported. Resolve the required "
-            "approval item before moving forward."
+            "The diagnosis and planned work make sense. Clear up the remaining approval "
+            "item before moving forward."
         )
 
     return (
-        "The diagnosis and proposed work are technically supported. No material issue needs "
-        "to be resolved before approval."
+        "The diagnosis and planned work make sense based on what the quote shows. You can "
+        "move forward."
     )
 
 
@@ -2989,6 +3314,7 @@ def finalize_customer_analysis(
 
     normalize_project_overview(finalized, quote_text)
     normalize_refrigerant_customer_fields(finalized, quote_text)
+    normalize_heat_exchanger_customer_fields(finalized)
     if not finalized.missing_information.strip():
         finalized.missing_information = (
             "No important missing information was identified that appears likely to "

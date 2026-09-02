@@ -1,0 +1,38 @@
+HVAC REPLACEMENT PROPOSAL
+
+Customer complaint:
+Furnace is heating, but the technician observed abnormal burner operation during an inspection.
+
+Diagnosis:
+Suspected heat-exchanger failure. Furnace replacement is recommended.
+
+Diagnostic findings:
+- Furnace is approximately 16 years old.
+- Burner flames move noticeably when the circulating blower starts.
+- A borescope inspection identified a discolored and irregular area near a heat-exchanger seam.
+- The proposal does not document a clearly visible crack, hole, split, or separation.
+- No photograph or borescope image identifying a failed opening is included.
+- Flue-gas carbon monoxide measured at 165 ppm air-free during operation.
+- The proposal does not identify a manufacturer rejection criterion met by the observed area.
+- Gas manifold pressure was checked and reported within the manufacturer's range.
+- Venting and inducer operation were inspected with no obstruction documented.
+- The contractor recommends additional safety concern be resolved through furnace replacement.
+
+Recommended work:
+Replace the furnace because of the suspected heat-exchanger condition.
+
+Scope of work:
+- Remove existing furnace
+- Install replacement furnace
+- Reconnect gas piping, venting, electrical, controls, and ductwork
+- Verify gas manifold pressure
+- Perform combustion analysis
+- Check carbon monoxide after installation
+- Run the furnace through a complete heating cycle
+
+Total replacement price: $9,850
+
+Parts and labor included.
+
+10-year manufacturer parts warranty.
+2-year labor warranty.

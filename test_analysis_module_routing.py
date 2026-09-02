@@ -1,8 +1,10 @@
+import inspect
 import unittest
 from pathlib import Path
 
 from pydantic import ValidationError
 
+import main
 from main import (
     ANALYSIS_MODULES,
     AnalysisModule,
@@ -33,7 +35,7 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
 
     def test_structured_classification_rejects_unknown_module(self):
         with self.assertRaises(ValidationError):
-            classification_for("heat_exchanger")
+            classification_for("equipment_matching")
 
     def test_invalid_constructed_module_fails_loudly(self):
         invalid = QuoteClassification.model_construct(
@@ -79,6 +81,122 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
         self.assertIn("PRESSURE SWITCH / DRAFT PROVING REPAIRS", knowledge)
         self.assertIn("HOT SURFACE IGNITER / IGNITION REPAIRS", knowledge)
         self.assertIn("FLAME SENSOR / FLAME PROVING REPAIRS", knowledge)
+
+    def test_heat_exchanger_resolves_as_independent_module(self):
+        knowledge = get_analysis_knowledge(
+            classification_for(AnalysisModule.HEAT_EXCHANGER)
+        )
+
+        for expected in (
+            "HEAT EXCHANGER INTEGRITY AND CONDEMNATION",
+            "DIRECT PHYSICAL EVIDENCE",
+            "SUPPORTING OR CORROBORATING EVIDENCE",
+            "WEAK OR NON-DIAGNOSTIC EVIDENCE",
+            "CONFIRMED",
+            "INCOMPLETE",
+            "ABSENT",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, knowledge)
+
+        for unrelated in (
+            "REFRIGERANT SYSTEM AND COIL REPAIR ANALYSIS RULES",
+            "CAPACITOR AND STARTING COMPONENTS",
+            "AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW",
+            "PRICING AND TRANSPARENCY",
+            "Quote Comparison",
+        ):
+            with self.subTest(unrelated=unrelated):
+                self.assertNotIn(unrelated, knowledge)
+
+    def test_heat_exchanger_prompt_uses_evidence_hierarchy(self):
+        knowledge = ANALYSIS_MODULES[AnalysisModule.HEAT_EXCHANGER]
+
+        for expected in (
+            "clearly documented crack, hole, split, separation",
+            "Elevated CO is not automatic",
+            "Flame movement when the blower starts is not automatic proof of a crack",
+            "Furnace age, rust alone, discoloration alone",
+            "without every possible combustion test",
+            "A diagnosis statement does not support itself",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, knowledge)
+
+    def test_heat_exchanger_unsupported_reporting_is_evidence_based(self):
+        knowledge = ANALYSIS_MODULES[AnalysisModule.HEAT_EXCHANGER]
+
+        for expected in (
+            "EVIDENCE SUFFICIENCY, NOT A TEST CHECKLIST",
+            "does not document meaningful evidence establishing failure",
+            "not a list of tests that must all be performed",
+            "Do not create separate red flags for each optional test",
+            "ask what specifically confirms the failure",
+            "without prescribing combustion analysis, CO measurement",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, knowledge)
+
+        for diagnostic_method in (
+            "combustion analysis",
+            "CO testing",
+            "temperature-rise testing",
+            "gas-pressure testing",
+        ):
+            with self.subTest(diagnostic_method=diagnostic_method):
+                self.assertIn(diagnostic_method, knowledge)
+
+    def test_heat_exchanger_direct_failure_does_not_require_optional_tests(self):
+        knowledge = ANALYSIS_MODULES[AnalysisModule.HEAT_EXCHANGER]
+
+        self.assertIn(
+            "Direct physical evidence that clearly meets an applicable failure "
+            "criterion may be enough",
+            knowledge,
+        )
+        self.assertIn(
+            "otherwise confirmed failure merely because the proposal omits",
+            knowledge,
+        )
+        self.assertIn(
+            "Never describe combustion analysis, CO testing,\n"
+            "temperature-rise testing, gas-pressure testing",
+            knowledge,
+        )
+
+    def test_classifier_guidance_routes_only_material_heat_exchanger_cases(self):
+        classifier_source = inspect.getsource(main.classify_quotes)
+
+        self.assertIn("- heat_exchanger", classifier_source)
+        self.assertIn("furnace", classifier_source)
+        self.assertIn(
+            "replacement primarily justified by heat-exchanger failure",
+            classifier_source,
+        )
+        self.assertIn(
+            "Do not select heat_exchanger for an",
+            classifier_source,
+        )
+        self.assertIn(
+            "igniter, flame sensor, inducer, pressure switch, gas valve, thermostat",
+            classifier_source,
+        )
+
+    def test_non_exchanger_furnace_fixtures_do_not_require_heat_exchanger(self):
+        for fixture in (
+            "electrical_igniter_good_test.txt",
+            "electrical_flame_sensor_good_test.txt",
+            "electrical_pressure_switch_good_test.txt",
+        ):
+            with self.subTest(fixture=fixture):
+                self.assertNotIn("heat exchanger", Path(fixture).read_text().lower())
+                classification = classification_for(
+                    AnalysisModule.FURNACE_COMBUSTION
+                )
+                self.assertNotIn(
+                    AnalysisModule.HEAT_EXCHANGER,
+                    classification.modules_required,
+                )
 
     def test_refrigerant_fixture_does_not_require_electrical_controls(self):
         classification = classification_for(AnalysisModule.REFRIGERANT_SYSTEM)
