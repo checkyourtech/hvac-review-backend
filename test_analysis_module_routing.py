@@ -8,6 +8,7 @@ import main
 from main import (
     ANALYSIS_MODULES,
     AnalysisModule,
+    PHASE_2_MODULE_GAPS,
     QuoteClassification,
     SECTION_QUALITY_RULES,
     get_analysis_knowledge,
@@ -35,7 +36,7 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
 
     def test_structured_classification_rejects_unknown_module(self):
         with self.assertRaises(ValidationError):
-            classification_for("equipment_matching")
+            classification_for("sizing")
 
     def test_invalid_constructed_module_fails_loudly(self):
         invalid = QuoteClassification.model_construct(
@@ -108,6 +109,149 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
         ):
             with self.subTest(unrelated=unrelated):
                 self.assertNotIn(unrelated, knowledge)
+
+    def test_equipment_matching_resolves_as_independent_module(self):
+        knowledge = get_analysis_knowledge(
+            classification_for(AnalysisModule.EQUIPMENT_MATCHING)
+        )
+
+        self.assertIn("EQUIPMENT MATCHING AND COMPATIBILITY", knowledge)
+        self.assertIn("AHRI AND EXTERNAL-VERIFICATION FIREWALL", knowledge)
+        self.assertNotIn("equipment_matching", PHASE_2_MODULE_GAPS)
+        for unrelated in (
+            "COMPRESSOR REPAIR ANALYSIS RULES",
+            "HEAT EXCHANGER INTEGRITY AND CONDEMNATION",
+            "REFRIGERANT SYSTEM AND COIL REPAIR ANALYSIS RULES",
+            "ELECTRICAL / CONTROL REPAIR ANALYSIS RULES",
+        ):
+            with self.subTest(unrelated=unrelated):
+                self.assertNotIn(unrelated, knowledge)
+
+    def test_equipment_matching_prompt_has_required_calibration(self):
+        knowledge = ANALYSIS_MODULES[AnalysisModule.EQUIPMENT_MATCHING]
+        normalized_knowledge = " ".join(knowledge.split())
+
+        for expected in (
+            "AHRI evidence is strong where applicable, but an AHRI number is not universally mandatory",
+            "Exact model numbers identify equipment but do not prove a match",
+            "same brand, same nominal tonnage, or same refrigerant",
+            "Ordinarily use INCOMPLETE, not ABSENT or CONTRADICTORY",
+            "Do not use AI memory to assert AHRI validity",
+            "CONTRADICTORY + UNSUPPORTED",
+            "do not prove that the building needs 3 tons",
+            "Do not evaluate actual refrigerant-line length or lift",
+            "Do not evaluate conductors, breakers",
+            "startup measurements, pressure testing, final charging",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, normalized_knowledge)
+
+        for unrelated_section in (
+            "MANUAL J LOAD CALCULATION",
+            "EVACUATION\n\n",
+            "GAS PIPE SIZING",
+            "QUOTE COMPARISON",
+            "PRICING AND TRANSPARENCY",
+        ):
+            with self.subTest(unrelated_section=unrelated_section):
+                self.assertNotIn(unrelated_section, knowledge)
+
+    def test_equipment_matching_customer_language_stays_within_scope(self):
+        knowledge = " ".join(
+            ANALYSIS_MODULES[AnalysisModule.EQUIPMENT_MATCHING].split()
+        )
+
+        for allowed_concept in (
+            "supports component compatibility",
+            "submitted matched-system ratings",
+            "equipment-level refrigerant compatibility",
+            "equipment-level voltage/phase consistency",
+            "consistent with the submitted equipment documentation",
+        ):
+            with self.subTest(allowed_concept=allowed_concept):
+                self.assertIn(allowed_concept, knowledge)
+
+        for prohibited_overclaim in (
+            "proves the selected capacity is correct for the home",
+            "system will efficiently heat or cool the building",
+            "ensures optimal refrigerant flow",
+            "all electrical requirements are met",
+            "complete electrical-code compliance has been verified",
+        ):
+            with self.subTest(prohibited_overclaim=prohibited_overclaim):
+                self.assertIn(prohibited_overclaim, knowledge)
+
+        self.assertIn("Never say or imply", knowledge)
+        self.assertIn("Do not say that the TXV", knowledge)
+        self.assertIn("equipment-level voltage/phase compatibility only", knowledge)
+
+    def test_classifier_guidance_routes_equipment_matching_replacements(self):
+        classifier_source = inspect.getsource(main.classify_quotes)
+        normalized_source = " ".join(classifier_source.split())
+
+        for expected in (
+            "- equipment_matching",
+            "complete system",
+            "condenser plus furnace and coil",
+            "heat pump plus air handler",
+            "heat pump plus furnace or dual-fuel equipment",
+            "AHRI reference or certificate",
+            "manufacturer-approved combination",
+            "system-combination efficiency",
+            "communicating equipment",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, normalized_source)
+
+    def test_equipment_matching_fixtures_represent_routing_boundaries(self):
+        for fixture in (
+            "equipment_matching_good_test.txt",
+            "equipment_matching_partial_test.txt",
+            "equipment_matching_bad_test.txt",
+        ):
+            with self.subTest(fixture=fixture):
+                quote = Path(fixture).read_text(encoding="utf-8").lower()
+                self.assertIn("replacement proposal", quote)
+                self.assertTrue(
+                    any(term in quote for term in ("ahri", "matched", "match documentation"))
+                )
+                classification = classification_for(
+                    AnalysisModule.EQUIPMENT_MATCHING
+                )
+                self.assertIn(
+                    AnalysisModule.EQUIPMENT_MATCHING,
+                    classification.modules_required,
+                )
+
+    def test_routine_repair_fixtures_do_not_require_equipment_matching(self):
+        cases = (
+            ("electrical_test.txt", AnalysisModule.ELECTRICAL_CONTROLS),
+            ("electrical_condenser_fan_good_test.txt", AnalysisModule.MOTORS),
+            ("electrical_igniter_good_test.txt", AnalysisModule.FURNACE_COMBUSTION),
+            ("electrical_pressure_switch_good_test.txt", AnalysisModule.FURNACE_COMBUSTION),
+            ("electrical_flame_sensor_good_test.txt", AnalysisModule.FURNACE_COMBUSTION),
+            ("refrigerant_low_charge_good_test.txt", AnalysisModule.REFRIGERANT_SYSTEM),
+            ("drainage_condensate_good_test.txt", AnalysisModule.DUCT_AIRFLOW),
+        )
+        for fixture, module in cases:
+            with self.subTest(fixture=fixture):
+                quote = Path(fixture).read_text(encoding="utf-8").lower()
+                self.assertNotIn("complete system replacement", quote)
+                classification = classification_for(module)
+                self.assertNotIn(
+                    AnalysisModule.EQUIPMENT_MATCHING,
+                    classification.modules_required,
+                )
+
+    def test_global_prompt_no_longer_contains_equipment_match_policy(self):
+        analyze_source = inspect.getsource(main.analyze_hvac_quote)
+
+        self.assertNotIn("EQUIPMENT MATCH VERIFICATION", analyze_source)
+        self.assertNotIn(
+            "recommend confirming the AHRI matched-system reference",
+            analyze_source,
+        )
+        self.assertIn("Do not supply or assume:", analyze_source)
 
     def test_heat_exchanger_prompt_uses_evidence_hierarchy(self):
         knowledge = ANALYSIS_MODULES[AnalysisModule.HEAT_EXCHANGER]

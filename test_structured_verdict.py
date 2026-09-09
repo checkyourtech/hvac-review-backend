@@ -27,13 +27,14 @@ def make_analysis(
     contractor_questions=None,
     recommendation="AI-generated recommendation that Python must replace.",
     pricing_review="Pricing transparency was reviewed separately.",
+    equipment_analysis="The documented technical scope was reviewed.",
     missing_information="No material information is missing.",
     installation_concerns="No material installation concerns were identified.",
     technical_assessments=None,
 ):
     return HVACAnalysis(
         project_overview="Test proposal",
-        equipment_analysis="The documented technical scope was reviewed.",
+        equipment_analysis=equipment_analysis,
         missing_information=missing_information,
         pricing_review=pricing_review,
         installation_concerns=installation_concerns,
@@ -139,6 +140,195 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertIn(PRICING_REQUIRED_ACTION, analysis.decision.required_actions)
         self.assertIn("price breakdown is limited", analysis.recommendation)
         self.assertIn("does not mean the contractor is dishonest", analysis.recommendation)
+
+    def test_replacement_category_breakdown_is_adequate(self):
+        quote_text = Path("equipment_matching_good_test.txt").read_text(encoding="utf-8")
+        matching_assessment = TechnicalEvidenceAssessment(
+            subject="Quoted indoor/outdoor equipment compatibility",
+            materiality="PRIMARY",
+            diagnostic_evidence_status="CONFIRMED",
+            scope_support="APPROPRIATE",
+            documented_evidence=[
+                "Submitted AHRI information ties the exact heat pump and air handler together."
+            ],
+            material_gaps=[],
+            contradictions=[],
+        )
+        analysis = make_analysis(
+            pricing_transparency="LIMITED",
+            required_actions=[PRICING_REQUIRED_ACTION],
+            verdict_reasons=["Individual labor rates and material prices are not listed."],
+            pricing_review="The quote does not list every part or hourly labor rate.",
+            missing_information="No important information is missing.",
+            installation_concerns=(
+                "Confirm all startup procedures and final operational verification with "
+                "the contractor."
+            ),
+            red_flags=[],
+            good_signs=[
+                "The submitted AHRI certificate ties the exact models together.",
+                "The AHRI reference documents a matched system.",
+                "The listed indoor and outdoor models are a matched combination.",
+                "The quote identifies the R-454B factory metering setup.",
+                "The quote includes startup and a documented parts warranty.",
+            ],
+            contractor_questions=[
+                "Can you provide separate refrigerant and labor pricing?",
+                "Can you confirm all startup procedures will follow manufacturer guidelines?",
+            ],
+            technical_assessments=[matching_assessment],
+        )
+
+        finalized = finalize_customer_analysis(
+            analysis,
+            quote_text=quote_text,
+            quote_count=1,
+        )
+        report = build_report_html(finalized, quote_count=1)
+
+        self.assertEqual(finalized.decision.technical_support, "SUPPORTED")
+        self.assertEqual(finalized.decision.pricing_transparency, "ADEQUATE")
+        self.assertEqual(finalized.decision.verdict, "PROCEED")
+        self.assertNotIn(PRICING_REQUIRED_ACTION, finalized.decision.required_actions)
+        self.assertEqual(finalized.decision.verdict_reasons, [])
+        self.assertEqual(finalized.contractor_questions, [])
+        self.assertIn("$16,800 total", finalized.pricing_review)
+        self.assertIn("$10,200 for equipment", finalized.pricing_review)
+        self.assertIn("$6,600 for labor and installation materials", finalized.pricing_review)
+        self.assertIn("meaningful high-level breakdown", finalized.pricing_review)
+        self.assertLessEqual(
+            sum(
+                any(term in sign.lower() for term in ("ahri", "matched combination", "matched system"))
+                for sign in finalized.good_signs
+            ),
+            1,
+        )
+        self.assertTrue(
+            any("metering" in sign.lower() for sign in finalized.good_signs)
+        )
+        self.assertIn("equipment combination", finalized.homeowner_takeaway)
+        self.assertNotIn("confirm", finalized.installation_concerns.lower())
+        self.assertNotIn("requested price breakdown", report_paragraph(report, "Bottom Line"))
+
+    def test_lump_sum_replacement_pricing_remains_limited(self):
+        quote_text = Path("equipment_matching_partial_test.txt").read_text(encoding="utf-8")
+        analysis = make_analysis(
+            pricing_transparency="LIMITED",
+            equipment_analysis=(
+                "The missing air-handler model indicates a potential mismatch."
+            ),
+            missing_information="The exact indoor model and AHRI documentation are missing.",
+            installation_concerns=(
+                "Performance may suffer if the model eventually selected is incompatible."
+            ),
+            red_flags=[
+                "The missing indoor model and AHRI certificate are major red flags."
+            ],
+            good_signs=[
+                "The matching factory TXV ensures proper refrigerant flow and performance.",
+                "The contractor documented no conflicting information about the equipment match.",
+            ],
+            contractor_questions=[
+                "What specific model of the indoor air handler will be installed, and "
+                "how does it match with the outdoor unit?",
+                "What steps will confirm performance after installation?",
+                "Can you provide separate equipment and labor pricing?",
+            ],
+            technical_assessments=[
+                TechnicalEvidenceAssessment(
+                    subject="Quoted indoor/outdoor equipment compatibility",
+                    materiality="PRIMARY",
+                    diagnostic_evidence_status="INCOMPLETE",
+                    scope_support="PARTIALLY_DEFINED",
+                    documented_evidence=["The outdoor model is identified."],
+                    material_gaps=["The exact indoor model and submitted match are missing."],
+                    contradictions=[],
+                )
+            ],
+        )
+
+        finalized = finalize_customer_analysis(analysis, quote_text=quote_text, quote_count=1)
+
+        self.assertEqual(finalized.decision.technical_support, "PARTIALLY_SUPPORTED")
+        self.assertEqual(finalized.decision.pricing_transparency, "LIMITED")
+        self.assertEqual(finalized.decision.verdict, "REVIEW_BEFORE_APPROVING")
+        self.assertIn(PRICING_REQUIRED_ACTION, finalized.decision.required_actions)
+        self.assertEqual(finalized.red_flags, [])
+        customer_text = " ".join(
+            [
+                finalized.equipment_analysis,
+                finalized.missing_information,
+                finalized.installation_concerns,
+                *finalized.red_flags,
+                *finalized.good_signs,
+            ]
+        ).lower()
+        self.assertIn("compatibility can be verified", customer_text)
+        self.assertNotIn("potential mismatch", customer_text)
+        self.assertNotIn("eventually selected", customer_text)
+        self.assertNotIn("ensures proper refrigerant flow", customer_text)
+        self.assertIn("final applicability", " ".join(finalized.good_signs).lower())
+        self.assertFalse(
+            any("no conflicting information" in sign.lower() for sign in finalized.good_signs)
+        )
+        self.assertTrue(
+            any("factory metering device" in sign.lower() for sign in finalized.good_signs)
+        )
+        self.assertEqual(len(finalized.contractor_questions), 4)
+        self.assertEqual(
+            sum(
+                "model" in question.lower()
+                and any(
+                    term in question.lower()
+                    for term in ("indoor", "air handler", "air-handler")
+                )
+                and not any(
+                    term in question.lower()
+                    for term in ("ahri", "manufacturer match", "efficiency")
+                )
+                for question in finalized.contractor_questions
+            ),
+            1,
+        )
+        self.assertIn("exact indoor", finalized.contractor_questions[0].lower())
+        self.assertTrue(
+            any(
+                term in finalized.contractor_questions[1].lower()
+                for term in ("ahri", "manufacturer match")
+            )
+        )
+        self.assertIn("efficiency rating", finalized.contractor_questions[2].lower())
+        self.assertEqual(
+            sum("itemized" in question.lower() for question in finalized.contractor_questions),
+            1,
+        )
+        self.assertNotIn("refrigerant", finalized.contractor_questions[-1].lower())
+
+    def test_documented_equipment_match_contradiction_remains_a_red_flag(self):
+        analysis = make_analysis(
+            pricing_transparency="ADEQUATE",
+            red_flags=[
+                "The submitted match document lists a different indoor model than the quote."
+            ],
+            technical_assessments=[
+                TechnicalEvidenceAssessment(
+                    subject="Quoted indoor/outdoor equipment compatibility",
+                    materiality="PRIMARY",
+                    diagnostic_evidence_status="CONTRADICTORY",
+                    scope_support="UNSUPPORTED",
+                    documented_evidence=["The quote and match document identify different models."],
+                    material_gaps=[],
+                    contradictions=["The submitted indoor models do not agree."],
+                )
+            ],
+        )
+
+        finalized = finalize_customer_analysis(analysis, quote_count=1)
+
+        self.assertEqual(finalized.decision.technical_support, "UNSUPPORTED")
+        self.assertEqual(finalized.decision.verdict, "GET_A_SECOND_OPINION")
+        self.assertEqual(len(finalized.red_flags), 1)
+        self.assertIn("different indoor model", finalized.red_flags[0].lower())
 
     def test_existing_equivalent_itemization_action_is_not_duplicated(self):
         existing_action = "Obtain a detailed cost breakdown before signing."
@@ -284,7 +474,8 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertIn("does not show enough evidence", banner)
         self.assertNotIn("quoted price", banner)
         self.assertIn("another opinion", takeaway)
-        self.assertIn("technical concern is primary", takeaway)
+        self.assertIn("this is the main concern", takeaway)
+        self.assertNotIn("technical concern is primary", takeaway)
         self.assertIn("does not show enough evidence", bottom_line)
         self.assertIn("another opinion", bottom_line)
         self.assertNotIn("price breakdown", bottom_line)

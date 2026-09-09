@@ -260,6 +260,27 @@ class FixtureCalibrationTests(unittest.TestCase):
                 subject="Heat-exchanger condemnation and furnace replacement",
             )
         ],
+        "equipment_matching_good_test.txt": [
+            assessment(
+                "CONFIRMED",
+                "APPROPRIATE",
+                subject="Quoted indoor/outdoor equipment compatibility",
+            )
+        ],
+        "equipment_matching_partial_test.txt": [
+            assessment(
+                "INCOMPLETE",
+                "PARTIALLY_DEFINED",
+                subject="Quoted indoor/outdoor equipment compatibility",
+            )
+        ],
+        "equipment_matching_bad_test.txt": [
+            assessment(
+                "CONTRADICTORY",
+                "UNSUPPORTED",
+                subject="Quoted indoor/outdoor equipment compatibility",
+            )
+        ],
     }
     EXPECTED = {
         "electrical_test.txt": "SUPPORTED",
@@ -278,6 +299,9 @@ class FixtureCalibrationTests(unittest.TestCase):
         "combustion_heat_exchanger_good_test.txt": "SUPPORTED",
         "combustion_heat_exchanger_partial_test.txt": "PARTIALLY_SUPPORTED",
         "combustion_heat_exchanger_bad_test.txt": "UNSUPPORTED",
+        "equipment_matching_good_test.txt": "SUPPORTED",
+        "equipment_matching_partial_test.txt": "PARTIALLY_SUPPORTED",
+        "equipment_matching_bad_test.txt": "UNSUPPORTED",
     }
 
     def test_fixture_calibration_matrix(self):
@@ -334,6 +358,33 @@ class FixtureCalibrationTests(unittest.TestCase):
             ),
             "combustion_heat_exchanger_bad_test.txt": (
                 "ABSENT",
+                "UNSUPPORTED",
+                "UNSUPPORTED",
+            ),
+        }
+
+        for fixture, (evidence_status, scope_status, support) in expected.items():
+            with self.subTest(fixture=fixture):
+                item = self.CASES[fixture][0]
+                self.assertEqual(item.materiality, "PRIMARY")
+                self.assertEqual(item.diagnostic_evidence_status, evidence_status)
+                self.assertEqual(item.scope_support, scope_status)
+                self.assertEqual(derive_technical_support([item]), support)
+
+    def test_equipment_matching_fixture_assessment_calibration(self):
+        expected = {
+            "equipment_matching_good_test.txt": (
+                "CONFIRMED",
+                "APPROPRIATE",
+                "SUPPORTED",
+            ),
+            "equipment_matching_partial_test.txt": (
+                "INCOMPLETE",
+                "PARTIALLY_DEFINED",
+                "PARTIALLY_SUPPORTED",
+            ),
+            "equipment_matching_bad_test.txt": (
+                "CONTRADICTORY",
                 "UNSUPPORTED",
                 "UNSUPPORTED",
             ),

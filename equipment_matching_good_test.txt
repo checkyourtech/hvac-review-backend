@@ -1,0 +1,24 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+
+Proposed equipment:
+- Outdoor heat pump: Northstar NHP36-24V, 208/230V single phase, R-454B
+- Indoor air handler: Northstar NAH36-24V, 208/230V single phase, R-454B
+- Factory metering device: Northstar TXV-36B for the listed combination
+
+Submitted matched-system documentation:
+- AHRI Certificate Reference 214567890 is attached to this proposal.
+- The attached certificate lists outdoor model NHP36-24V and indoor model NAH36-24V.
+- The certificate rates this exact combination at 16.0 SEER2, 12.0 EER2, and 8.1 HSPF2.
+- The submitted manufacturer combination sheet also lists these exact indoor and outdoor models together with TXV-36B.
+- Both submitted documents identify R-454B and 208/230V single-phase equipment.
+
+Scope:
+- Remove the existing outdoor unit and air handler.
+- Install the quoted matched heat pump and air handler.
+- Install the listed factory metering device.
+- Complete the installation and startup under the manufacturer's instructions.
+
+Total installed price: $16,800.
+Equipment: $10,200.
+Labor and installation materials: $6,600.
+

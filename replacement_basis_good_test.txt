@@ -1,0 +1,37 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+
+Existing system:
+- 17-year-old split air-conditioning system
+- Existing compressor is out of the major equipment warranty
+- Two major repairs were completed during the last three years
+
+Documented findings:
+- Correct voltage reaches the compressor
+- Run capacitor tested within its rated tolerance
+- Compressor windings were tested and continuity to ground was documented
+- The compressor was diagnosed as electrically grounded
+
+Options provided:
+- Replace the compressor, filter drier, and refrigerant for $6,900
+- Replace the complete system
+- Because of the confirmed compressor failure, prior major repairs, age, and repair cost,
+  the contractor recommends replacement as the better long-term option
+
+Proposed replacement equipment:
+- Outdoor heat pump: Northstar NHP36-24V, R-454B, 208/230V single phase
+- Indoor air handler: Northstar NAH36-24V, R-454B, 208/230V single phase
+- Factory metering device: Northstar TXV-36B
+
+Submitted matched-system documentation:
+- AHRI Certificate Reference 214567890 lists outdoor model NHP36-24V and indoor model NAH36-24V
+- The certificate rates this exact combination at 16.0 SEER2, 12.0 EER2, and 8.1 HSPF2
+- The submitted manufacturer combination sheet lists the same exact models with TXV-36B
+
+Replacement scope:
+- Remove the existing system
+- Install the listed matched indoor and outdoor equipment
+- Complete startup and verify heating and cooling operation
+
+Total replacement price: $17,800
+Equipment: $10,800
+Labor and installation materials: $7,000

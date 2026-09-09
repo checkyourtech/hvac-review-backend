@@ -68,6 +68,14 @@ PricingTransparency = Literal[
 ]
 
 
+class ReplacementContext(str, Enum):
+    FAILURE_DRIVEN = "failure_driven"
+    SAFETY_DRIVEN = "safety_driven"
+    ECONOMIC_CONDITION = "economic_condition"
+    ELECTIVE = "elective"
+    UNKNOWN = "unknown"
+
+
 class TechnicalEvidenceAssessment(BaseModel):
     subject: str
     materiality: TechnicalMateriality
@@ -101,6 +109,7 @@ class HVACAnalysis(BaseModel):
     contractor_questions: List[str] = Field(default_factory=list)
     recommendation: str
     decision: HVACDecision
+    replacement_context: ReplacementContext = ReplacementContext.UNKNOWN
     technical_assessments: List[TechnicalEvidenceAssessment] = Field(
         default_factory=list
     )
@@ -113,6 +122,7 @@ class AnalysisModule(str, Enum):
     COMPRESSOR = "compressor"
     REFRIGERANT_SYSTEM = "refrigerant_system"
     HEAT_EXCHANGER = "heat_exchanger"
+    EQUIPMENT_MATCHING = "equipment_matching"
     ELECTRICAL_CONTROLS = "electrical_controls"
     MOTORS = "motors"
     FURNACE_COMBUSTION = "furnace_combustion"
@@ -296,6 +306,7 @@ Choose all relevant analysis modules from:
 - compressor
 - refrigerant_system
 - heat_exchanger
+- equipment_matching
 - electrical_controls
 - motors
 - furnace_combustion
@@ -324,13 +335,40 @@ control problem unless heat-exchanger integrity is materially part of the diagno
 Heat-exchanger cases may also select furnace_combustion, repair_vs_replace, warranty, or
 commissioning when those areas are genuinely relevant to the submitted scope.
 
+Select equipment_matching when the proposal materially changes major HVAC equipment and
+the indoor/outdoor combination must be evaluated. This includes complete system
+replacement; condenser plus coil; condenser plus furnace and coil; heat pump plus air
+handler; heat pump plus furnace or dual-fuel equipment; exact indoor/outdoor model
+combinations; an AHRI reference or certificate; a claimed matched system or
+manufacturer-approved combination; equipment compatibility; system-combination efficiency
+certification; communicating equipment whose components must work together; or explicitly
+documented refrigerant compatibility between newly proposed indoor and outdoor equipment.
+
+Do not select equipment_matching for a routine capacitor, contactor, fan motor, igniter,
+pressure-switch, flame-sensor, refrigerant-recharge, or drain repair unless the proposal
+also materially replaces or changes major system equipment. A repair-part model or an
+existing component mentioned during diagnosis does not by itself require system matching.
+
 Select duct_airflow when the proposal involves airflow, static pressure, blower airflow configuration, duct restrictions, supply or return restrictions, or ductwork evaluation.
 
 Select warranty whenever warranty coverage materially affects a major repair or replacement decision.
 
 Select commissioning when startup, pressure testing, evacuation, charging verification, airflow verification, or post-repair operational verification is material to the proposed work.
 
-Select repair_vs_replace when the proposal involves a major repair whose economics should be compared with equipment replacement.
+Select repair_vs_replace whenever a complete HVAC system, furnace, air conditioner,
+condenser-and-coil system, heat-pump/air-handler system, or other major equipment is being
+replaced. Also select it when the contractor says major equipment needs, must, or should be
+replaced; repair and replacement are alternatives; a major failure is used to justify
+replacement; or the proposal documents homeowner-requested proactive replacement, a remodel,
+an upgrade, fuel conversion, or electrification. Select it for a major repair whose economics
+should be compared with replacement.
+
+Do not select repair_vs_replace for a routine capacitor, contactor, igniter, condensate-drain,
+maintenance, or minor control repair unless major equipment replacement is materially proposed.
+
+For every complete-system or indoor-and-outdoor equipment replacement, select BOTH
+repair_vs_replace and equipment_matching. These modules answer separate questions and neither
+may substitute for the other.
 
 Select pricing whenever a repair or replacement price is provided.
 
@@ -1965,6 +2003,7 @@ MISSING INFORMATION (missing_information)
 PRICING REVIEW (pricing_review)
 - For every proposal with a quoted price, identify the total, whether major cost components are meaningfully itemized, what scope appears included, and what cannot be determined from the proposal.
 - Keep pricing transparency separate from technical quality. Lack of itemization alone does not imply dishonesty, overcharging, or poor technical work, and must not be excused merely because lump-sum HVAC pricing is common.
+- For a replacement, a clear installed total, identified major equipment and scope, and an understandable equipment versus labor/installation-material category breakdown can be ADEQUATE. Do not require hourly rates, contractor markup, internal equipment cost, or a price for every fitting when the major consumer-facing categories are clear.
 - Without verified regional pricing evidence, do not call a price fair, high, low, excessive, reasonable, or competitive.
 - If no price is provided, state that price and value cannot be meaningfully evaluated from the submitted proposal.
 
@@ -1978,6 +2017,19 @@ PRICING AND TRANSPARENCY
 When a proposal contains a quoted total or component price, identify the total, the meaningful cost components (if any), the included scope, and the limits of what can be determined. A scope list without separate prices is not price itemization.
 
 Meaningful itemization is desirable for homeowner transparency. If major parts, equipment, labor, materials, permits, diagnostic charges, or other major charges remain bundled, describe pricing transparency as limited or absent as appropriate and recommend requesting a breakdown before approval.
+
+For a normal residential replacement, ADEQUATE transparency does not require disclosure
+of hourly labor rates, exact markup, internal equipment cost, or every fitting and
+material. A clear installed total, clearly identified major equipment, meaningful included
+scope, and an equipment subtotal plus a labor/installation-material subtotal is an
+adequate high-level consumer breakdown unless a major allowance, exclusion, option, or
+charge remains ambiguous. Individual part and labor-hour itemization is optional in that
+case.
+
+Use LIMITED for a replacement when a lump-sum amount leaves the major equipment, included
+work, allowance, exclusion, option, or other major cost category materially unclear. Use
+ABSENT when no usable price is provided. Do not downgrade an otherwise understandable
+replacement price solely because finer contractor cost detail is not disclosed.
 
 Keep pricing transparency separate from technical support and red flags. Lack of itemization alone does not establish dishonesty, overcharging, or technical deficiency. Do not excuse limited transparency because flat-rate or lump-sum HVAC pricing is common.
 
@@ -1993,6 +2045,110 @@ Warranty guidance is available for every proposal but must be proportional to th
 - Do not penalize a routine minor repair merely because warranty language is absent.
 - Treat missing warranty information as decision-relevant only when material to the proposed scope or value. Major repairs and replacements generally warrant more scrutiny than small service repairs.
 - Meaningful documented warranty coverage may be included in good_signs.
+"""
+
+REPAIR_VS_REPLACE_ANALYSIS_RULES = """
+REPLACEMENT BASIS / REPAIR VS REPLACEMENT
+
+Answer one question: why is the existing equipment being replaced, and does replacement
+logically follow from the documented condition, supported failure, economics, safety concern,
+or explicit homeowner objective?
+
+For every complete-system, furnace, air-conditioner, condenser-and-coil, heat-pump/air-handler,
+or other material equipment replacement, populate replacement_context and create one PRIMARY
+TechnicalEvidenceAssessment with the stable subject "Basis for full-system replacement."
+Do not create that assessment for a minor repair-only proposal.
+
+REPLACEMENT CONTEXT
+
+- FAILURE_DRIVEN: a diagnosed major failure is being used to justify replacement.
+- SAFETY_DRIVEN: a supported safety condition is being used to justify replacement.
+- ECONOMIC_CONDITION: documented age, condition, repair history, repair feasibility, warranty,
+  parts availability, or repair cost provides the main replacement context.
+- ELECTIVE: the homeowner explicitly requested a planned replacement, remodel, comfort or
+  efficiency upgrade, fuel conversion, electrification, or proactive retirement without a
+  claim that failure makes replacement necessary.
+- UNKNOWN: the proposal does not make the reason clear.
+
+The context describes why replacement is proposed. It does not determine technical support by
+itself. A functioning system can have a supported ELECTIVE replacement basis.
+
+FAILURE AND SAFETY DEPENDENCY
+
+Do not independently diagnose a compressor, heat exchanger, coil, refrigerant condition,
+electrical failure, mechanical failure, or safety problem. Consume the relevant structured
+domain assessment. If the underlying PRIMARY failure assessment is ABSENT, CONTRADICTORY, or
+UNSUPPORTED, do not turn that diagnosis into a supported failure-driven or safety-driven basis.
+A separate, explicitly documented elective objective may still stand on its own.
+
+CALIBRATION
+
+- Use CONFIRMED or ADEQUATE with APPROPRIATE when a supported major failure or safety finding,
+  together with the documented context, reasonably supports replacement.
+- Use ADEQUATE with APPROPRIATE for an explicit elective replacement objective. Do not demand a
+  failed component, repair estimate, or proof that repair is impossible.
+- Use ADEQUATE with APPROPRIATE when quote-specific economic or condition evidence gives the
+  homeowner enough context to understand why replacement is preferred. No single factor and no
+  repair estimate is universally required.
+- Use INCOMPLETE with PARTIALLY_DEFINED when replacement may be reasonable but the quote does
+  not clearly explain why it is preferred over continued operation or repair.
+- Specifically, documented older age together with repeated service or recurring problems and
+  documented poor condition or deterioration is meaningful incomplete context. Use INCOMPLETE
+  with PARTIALLY_DEFINED when that combination is present but the current problem or reason for
+  preferring replacement over repair remains unclear. Do not reduce it to ABSENT merely because
+  no repair estimate or specific current failure is provided.
+- Use ABSENT with UNSUPPORTED when replacement is presented as necessary but is supported only
+  by age, a symptom, vague poor performance, high bills, generic efficiency sales language, or
+  an unsupported assertion.
+- Reserve CONTRADICTORY with UNSUPPORTED for a real conflict in submitted facts, such as saying
+  repair is impossible while documenting a straightforward supported repair option. Do not use
+  CONTRADICTORY merely because operating equipment is being replaced electively.
+
+BOUNDARIES
+
+Age is context, not proof that replacement is technically necessary. Do not establish an age
+where replacement becomes mandatory. Do not use a universal repair-to-replacement cost ratio.
+A repair option or estimate is useful when applicable but is not universally mandatory.
+
+Older refrigerant, discontinued equipment, unavailable parts, expired warranty, prior failures,
+and repair history count only when documented in the submitted material or externally verified.
+Never invent availability, service history, warranty, or condition from model memory. Older
+refrigerant alone does not justify replacement.
+
+Efficiency, high utility bills, comfort, humidity, noise, and poor cooling may support an
+elective objective or further investigation; they do not prove technical necessity by themselves.
+Do not decide whether new equipment matches, capacity is correct, ducts are adequate, lineset,
+electrical or gas design is correct, commissioning is complete, or regional pricing is fair.
+
+CUSTOMER-FACING REPORT
+
+For a supported basis, explain the documented reason directly and do not manufacture a
+replacement-basis question. For ELECTIVE, say this is a planned upgrade rather than replacement
+caused by a confirmed failure. For a partial basis, explain that replacement may make sense but
+the quote does not clearly show why it is preferred over repairing or continuing to use the
+existing equipment. For an unsupported basis, say the quote does not show enough to explain why
+the existing equipment needs replacement; do not say replacement is definitely wrong.
+
+A supported failed component establishes that component failure; it does not by itself prove
+that full-system replacement is necessary. Describe a supported failure-driven replacement as
+the combined result of the supported failure and the documented age, condition, repair option,
+repair history, warranty, or other applicable context. Do not say a compressor failure alone
+justifies full-system replacement.
+
+Use direct homeowner language. Do not expose rubric terms such as material technical evidence,
+replacement rationale, evidence hierarchy, decision framework, or operational viability.
+
+Translate internal prioritization into natural homeowner language. Do not write phrases such as
+"the technical concern is primary," "the principal deficiency," "the dominant concern,"
+"pricing is secondary to the technical concern," "insufficient to substantiate," or "material
+information is absent." Explain plainly what should be cleared up first.
+
+Ask at most the few replacement-basis questions needed for the documented context. For an
+unclear necessary replacement, ask what specifically is wrong and whether repair was considered.
+For an incomplete economic basis, ask what repair cost, condition, or history makes replacement
+the better option. For an incomplete failure basis, ask what finding supports the failure, while
+leaving technical diagnosis to its domain module. Do not ask an elective customer what failed or
+why the operating equipment cannot be repaired.
 """
 
 ELECTRICAL_POSITIVE_EVIDENCE_RULES = """
@@ -2135,6 +2291,225 @@ must seek supporting evidence without prescribing combustion analysis, CO measur
 temperature rise, or another single diagnostic method.
 """
 
+EQUIPMENT_MATCHING_ANALYSIS_RULES = """
+EQUIPMENT MATCHING AND COMPATIBILITY
+
+Answer one question: does the submitted proposal provide enough evidence that the quoted
+HVAC components are intended to operate together as a compatible system? Evaluate the
+submitted indoor/outdoor combination. Do not decide whether its capacity is correct for
+the building.
+
+WHAT THIS MODULE OWNS
+
+Evaluate quote-provided evidence for:
+- an approved indoor/outdoor combination
+- furnace, evaporator-coil, and condenser compatibility
+- heat-pump and air-handler/coil compatibility
+- heat-pump, furnace, coil, and required control compatibility for dual-fuel systems
+- submitted AHRI or manufacturer match documentation
+- equipment-level refrigerant compatibility
+- obvious major voltage/phase consistency between required system components
+- indoor metering-device application when documented
+- required communicating components and controls
+- included heat-kit compatibility when it is material to the proposed equipment pairing
+- whether a claimed SEER, SEER2, EER, EER2, HSPF, HSPF2, ENERGY STAR, high-efficiency,
+  or variable-speed rating applies to the exact submitted combination
+- whether indoor and outdoor nominal capacities are a documented or plausible approved
+  combination
+
+Do not assume that the same brand, same nominal tonnage, or same refrigerant proves that
+components are compatible. Exact model numbers identify equipment but do not prove a
+match by themselves. Different indoor and outdoor capacity designations do not prove a
+mismatch. Never compare furnace heating BTU directly with condenser cooling tonnage as
+though they are equivalent.
+
+DOCUMENTED AND REASONABLY SUPPORTED MATCHES
+
+Strong evidence includes submitted AHRI certificate or reference details clearly tied to
+the exact quoted indoor and outdoor models; submitted manufacturer documentation that
+explicitly lists the combination; or submitted OEM-approved combination information tying
+the exact models together.
+
+Use CONFIRMED when submitted AHRI or equivalent manufacturer documentation clearly
+connects the exact proposed models. Use ADEQUATE when the submitted documentation
+reasonably establishes the combination, including cases where AHRI certification is not
+required or applicable. A documented approved combination may be enough without an AHRI
+number.
+
+INCOMPLETE MATCH EVIDENCE
+
+Use INCOMPLETE with PARTIALLY_DEFINED when the combination appears plausible but cannot be
+verified from the submitted information. Examples include:
+- an exact outdoor model with a generic, missing, or truncated indoor model
+- a furnace identified without the coil model when coil identity is needed for the match
+- "AHRI matched" or "AHRI match included" without enough reference or model details
+- an AHRI reference that the submitted material does not tie to the exact proposed models
+- an efficiency claim that is not tied to the exact combination
+- brand and tonnage only, or a generic "matched coil"
+- exact major models without submitted match documentation when compatibility cannot
+  otherwise be established from the proposal
+
+Missing model or match documentation means the combination cannot be verified from the
+quote. It does not prove that the equipment is incompatible. Ordinarily use INCOMPLETE,
+not ABSENT or CONTRADICTORY, for missing identification or documentation. These rules
+apply to major replacement equipment, not routine repair-part numbers.
+
+For an elective or homeowner-requested replacement, keep the replacement objective separate
+from the proposed-equipment match. A supported elective basis does not supply missing model or
+match evidence. When a replacement equipment type is proposed but exact models or submitted
+matching documentation are ordinarily missing, use INCOMPLETE + PARTIALLY_DEFINED for the
+equipment match unless the submitted material documents an actual conflict.
+Generic wording such as "heat pump," "heat-pump system," or "homeowner-selected equipment"
+does not identify the exact indoor/outdoor models and cannot support ADEQUATE equipment matching.
+
+CONTRADICTORY OR UNSUPPORTED MATCHES
+
+Reserve CONTRADICTORY with UNSUPPORTED for a real conflict documented in the submitted
+material, such as:
+- submitted AHRI or match documentation listing different models from those quoted
+- explicitly documented incompatible refrigerants between required components
+- explicitly incompatible major voltage or phase requirements between components
+- submitted manufacturer documentation stating that the proposed combination is invalid
+- required communicating equipment explicitly paired with incompatible controls
+- another submitted document that materially contradicts the claimed match
+
+Do not infer a contradiction from model-number memory, a missing AHRI number, different
+capacity codes, brand differences, or incomplete documentation.
+
+AHRI AND EXTERNAL-VERIFICATION FIREWALL
+
+AHRI evidence is strong where applicable, but an AHRI number is not universally mandatory.
+Do not call a reference invalid merely because the backend cannot verify it externally.
+Do not use AI memory to assert AHRI validity, an OEM-approved match, model or suffix
+compatibility, certified efficiency, pressure rating, heat-kit compatibility, or control
+compatibility. Only use evidence included in the submitted proposal or attachments.
+
+Allowed conclusions include: the quote documents a matched combination; submitted AHRI
+information ties the listed models together; the equipment appears compatible based on
+the submitted information; the quote does not include enough information to verify the
+combination; or the submitted documentation contradicts the claimed match. Never say "I
+know these models are compatible" based on training-data memory.
+
+SYSTEM-SPECIFIC APPLICATION
+
+For a furnace, coil, and condenser system, evaluate the submitted condenser/coil match,
+refrigerant application, metering-device information, furnace/blower suitability when
+documented, materially relevant cabinet/coil relationship, and combination-specific
+efficiency evidence.
+
+For a heat pump and air handler, evaluate submitted heating/cooling combination evidence,
+refrigerant, metering device, required communicating controls, and any included compatible
+heat kit. A heat kit is irrelevant when not proposed, optional when merely offered as an
+upgrade, MATERIAL_SECONDARY when included but its compatible identity is materially
+unclear, and potentially PRIMARY only when the proposed heating design depends on it. Do
+not evaluate heat-kit breaker or service load here.
+
+For dual fuel, evaluate the heat pump, furnace, indoor coil, submitted manufacturer pairing,
+and required dual-fuel control compatibility only as part of equipment pairing. Do not
+perform thermostat diagnosis, wiring diagnosis, or electrical installation sizing.
+
+BOUNDARIES
+
+Equipment matching is pre-installation component compatibility. It does not determine
+whether the system capacity is right for the home, perform building load calculations,
+judge oversizing or undersizing, or evaluate duct capacity. A documented 3-ton condenser
+and approved matching coil do not prove that the building needs 3 tons.
+
+Do not evaluate actual refrigerant-line length or lift, reducers, oil traps, flushing,
+evacuation, or additional refrigerant charge. Do not evaluate conductors, breakers,
+MCA/MOCP, electrical-service capacity, disconnects, permits, gas-pipe sizing, startup
+measurements, pressure testing, final charging, temperature split, static pressure,
+equipment age, repair economics, price reasonableness, itemization, or quote winners.
+Those concerns belong to their own modules.
+
+TECHNICAL EVIDENCE ASSESSMENT
+
+For a full replacement, normally create one PRIMARY TechnicalEvidenceAssessment with the
+subject "Quoted indoor/outdoor equipment compatibility."
+
+- CONFIRMED or ADEQUATE + APPROPRIATE: submitted documentation establishes or reasonably
+  supports the proposed combination.
+- INCOMPLETE + PARTIALLY_DEFINED: the combination may be valid, but material model or match
+  evidence needed to verify it is absent from the submitted information.
+- CONTRADICTORY + UNSUPPORTED: submitted evidence shows a real conflict or directly
+  contradicts the claimed combination.
+
+Avoid ABSENT for an ordinary missing-model or missing-documentation case. Missing evidence
+alone is generally INCOMPLETE. Use a MATERIAL_SECONDARY assessment when an advertised
+efficiency rating, heat-kit identity, or dual-fuel control match matters but does not
+control the core system's viability. Do not fragment the analysis unnecessarily.
+
+CUSTOMER-FACING REPORT
+
+Explain whether the quote documents a match, appears plausible but cannot yet be verified,
+or contains a documented conflict. Do not expose internal status names. For partial cases,
+ask only for the exact model or match information needed to close the material gap. For a
+documented contradiction, identify what does not line up and ask which combination will
+actually be installed. Do not ask for AHRI documentation when it is inapplicable or when
+submitted manufacturer documentation already establishes the match.
+
+A matching document listing different models is a submitted-document contradiction, not
+proof that the quoted components are physically incompatible, invalid, unable to operate
+together, or likely to perform poorly. Only make physical incompatibility claims when
+submitted evidence explicitly establishes them. Count one paperwork contradiction as one
+red flag. Ask which exact indoor/outdoor models will be installed and request manufacturer
+or AHRI match documentation for those exact models; deduplicate alternate-source and
+compatibility questions. Explain that the paperwork must be corrected before approval.
+Keep the Bottom Line specific to the equipment match, not a generic diagnosis or repair.
+
+For an INCOMPLETE + PARTIALLY_DEFINED match, treat missing exact models, AHRI information,
+manufacturer match documentation, or match-specific efficiency support as important missing
+information, not a major red flag by itself. Say that the match cannot yet be verified; do not
+call the equipment incompatible, mismatched, invalid, or incorrect unless submitted evidence
+shows a real conflict. Do not speculate that equipment selected later may be incompatible.
+
+Questions for an incomplete match should first identify the exact indoor equipment, then ask
+for submitted documentation tying the exact indoor and outdoor models together, then confirm
+whether an advertised combination rating applies to those exact models. These pre-approval
+questions take priority over generic post-installation performance questions.
+
+For a full replacement, make the report useful beyond one repeated match fact. In
+equipment_analysis, explain the exact components and the submitted matching evidence,
+then cover independently documented refrigerant, major voltage/phase, metering-device,
+and combination-efficiency facts when relevant. In installation_concerns, evaluate the
+actual replacement and startup scope without importing sizing or other excluded modules.
+Credit documented warranty or startup scope where present.
+
+Do not split one AHRI certificate or manufacturer match into several near-duplicate
+good_signs. When matching is already explained in equipment_analysis and the homeowner
+takeaway, use good_signs for independent positives such as a documented metering setup,
+startup scope, or warranty. Fewer good signs are better than repetition.
+
+Keep missing_information and installation_concerns consistent about startup. If startup
+or final-operation checks are materially absent, identify that gap in both places without
+repeating a long checklist. If adequate startup scope is already documented, credit it
+and do not ask the homeowner to reconfirm generic manufacturer procedures.
+
+CUSTOMER-FACING SCOPE FIREWALL
+
+A documented equipment match supports component compatibility, the submitted
+matched-system ratings, equipment-level refrigerant compatibility, equipment-level voltage/phase
+consistency, and applicable metering or control compatibility. Describe only those
+submitted facts.
+
+Never say or imply that a documented match proves the selected capacity is correct for the
+home, that the home requires that exact equipment, or that the system will efficiently
+heat or cool the building. Do not turn matching evidence into a conclusion about house
+comfort, building energy performance, building loads, sensible or latent performance, or
+duct adequacy.
+
+When a factory metering device is documented, say that it is the specified device for the
+submitted combination or is consistent with the submitted equipment documentation. Do not
+say that the TXV, piston, or other metering device ensures optimal refrigerant flow,
+correct final charge, correct airflow, correct superheat or subcooling, installation
+quality, startup performance, or post-installation efficiency.
+
+When submitted equipment has consistent voltage and phase, describe that as
+equipment-level voltage/phase compatibility only. Do not say that all electrical requirements are
+met or that conductor size, breaker size, service capacity, disconnect, MCA/MOCP, field
+wiring, permits, or complete electrical-code compliance has been verified.
+"""
+
 ANALYSIS_MODULES: dict[AnalysisModule, str] = {
     AnalysisModule.COMPRESSOR: "\n\n".join(
         [
@@ -2184,6 +2559,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
         ]
     ),
     AnalysisModule.HEAT_EXCHANGER: HEAT_EXCHANGER_ANALYSIS_RULES,
+    AnalysisModule.EQUIPMENT_MATCHING: EQUIPMENT_MATCHING_ANALYSIS_RULES,
     AnalysisModule.ELECTRICAL_CONTROLS: "\n\n".join(
         [_electrical_core, _electrical_scope, ELECTRICAL_POSITIVE_EVIDENCE_RULES]
     ),
@@ -2225,25 +2601,11 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
             ),
         ]
     ),
-    AnalysisModule.REPAIR_VS_REPLACE: "\n\n".join(
-        [
-            _prompt_section(
-                _legacy_compressor,
-                "REPAIR VS REPLACEMENT",
-                "PRICING",
-            ),
-            _prompt_section(
-                _legacy_refrigerant,
-                "REPAIR VS REPLACEMENT",
-                "PRICING AND TRANSPARENCY",
-            ),
-        ]
-    ),
+    AnalysisModule.REPAIR_VS_REPLACE: REPAIR_VS_REPLACE_ANALYSIS_RULES,
     AnalysisModule.PRICING: UNIVERSAL_PRICING_RULES,
 }
 
 PHASE_2_MODULE_GAPS = (
-    "equipment_matching",
     "sizing",
     "lineset",
     "electrical_scope",
@@ -2310,7 +2672,7 @@ Populate decision.technical_support for schema compatibility, but understand tha
 will overwrite it from technical_assessments for newly generated analyses.
 
 Populate decision.pricing_transparency separately from technical_support:
-- ADEQUATE: meaningful prices are separately identified for the relevant major cost components.
+- ADEQUATE: meaningful prices are separately identified for the relevant major cost components. For a replacement, a clear installed total with identified equipment and scope plus an understandable equipment versus labor/installation category breakdown may be adequate without individual part prices or hourly labor rates.
 - LIMITED: some useful price detail exists, but material cost components remain bundled or unclear.
 - ABSENT: only a lump-sum total is provided without meaningful component pricing.
 - NOT_APPLICABLE: pricing transparency cannot reasonably be evaluated or does not apply.
@@ -2590,6 +2952,614 @@ def ensure_pricing_required_action(decision: HVACDecision) -> None:
         return
 
     decision.required_actions.append(PRICING_REQUIRED_ACTION)
+
+
+def _labeled_quote_amount(quote_text: str, labels: tuple[str, ...]) -> str:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf"(?:^|\n)\s*(?:{label_pattern})\s*(?::|-)?\s*"
+        r"(?P<amount>[$£€]\s*\d[\d,]*(?:\.\d{2})?)",
+        quote_text,
+        re.IGNORECASE,
+    )
+    return match.group("amount").replace(" ", "") if match else ""
+
+
+def replacement_category_price_breakdown(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> Optional[tuple[str, str, str]]:
+    """Return a clear replacement total/equipment/installation breakdown."""
+    has_matching_assessment = any(
+        assessment.materiality == "PRIMARY"
+        and "equipment compatibility"
+        in re.sub(r"[-_]+", " ", assessment.subject.lower())
+        for assessment in analysis.technical_assessments
+    )
+    normalized = quote_text.lower()
+    replacement_context = (
+        has_matching_assessment
+        or replacement_basis_assessment(analysis) is not None
+        or (
+        "replacement" in normalized
+        and any(
+            term in normalized
+            for term in ("outdoor unit", "condenser", "heat pump")
+        )
+        and any(
+            term in normalized
+            for term in ("indoor unit", "air handler", "coil", "furnace")
+        )
+        )
+    )
+    if not replacement_context:
+        return None
+
+    total = _labeled_quote_amount(
+        quote_text,
+        ("total installed price", "total replacement price", "total price"),
+    )
+    equipment = _labeled_quote_amount(
+        quote_text,
+        ("equipment", "equipment subtotal", "equipment cost"),
+    )
+    installation = _labeled_quote_amount(
+        quote_text,
+        (
+            "labor and installation materials",
+            "labor / installation materials",
+            "labor and materials",
+            "installation and labor",
+            "installation subtotal",
+        ),
+    )
+    has_exact_identified_equipment = any(
+        term in normalized
+        for term in ("outdoor heat pump:", "outdoor unit:", "condenser:")
+    ) and any(
+        term in normalized
+        for term in ("indoor air handler:", "air handler:", "coil:", "furnace:")
+    )
+    has_identified_equipment_type = bool(
+        replacement_basis_assessment(analysis)
+        and any(
+            term in normalized
+            for term in (
+                "heat-pump system",
+                "heat pump system",
+                "air-conditioning system",
+                "air conditioning system",
+                "furnace replacement",
+                "hvac system",
+            )
+        )
+    )
+    has_installation_scope = "scope" in normalized and any(
+        term in normalized
+        for term in ("install", "replace", "remove")
+    )
+    material_ambiguity = any(
+        term in normalized
+        for term in (
+            "price to be determined",
+            "pricing to be determined",
+            "cost to be determined",
+            "major allowance not included",
+            "equipment price not included",
+            "installation price not included",
+        )
+    )
+
+    if (
+        total
+        and equipment
+        and installation
+        and (has_exact_identified_equipment or has_identified_equipment_type)
+        and has_installation_scope
+        and not material_ambiguity
+    ):
+        return total, equipment, installation
+    return None
+
+
+def normalize_replacement_pricing_transparency(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Accept a meaningful high-level category breakdown for replacements."""
+    breakdown = replacement_category_price_breakdown(analysis, quote_text)
+    if breakdown is None:
+        return
+
+    total, equipment, installation = breakdown
+    analysis.decision.pricing_transparency = "ADEQUATE"
+    analysis.decision.required_actions = [
+        action
+        for action in analysis.decision.required_actions
+        if not is_equivalent_itemization_action(action)
+    ]
+    replacement_detail_terms = (
+        "hourly labor",
+        "labor rate",
+        "exact markup",
+        "contractor markup",
+        "internal equipment cost",
+        "individual part",
+        "individual material",
+        "itemiz",
+        "price breakdown",
+        "pricing transparency",
+        "bundled pricing",
+    )
+    analysis.decision.verdict_reasons = [
+        reason
+        for reason in analysis.decision.verdict_reasons
+        if not is_equivalent_itemization_action(reason)
+        and not any(
+            term in " ".join(str(reason or "").lower().split())
+            for term in replacement_detail_terms
+        )
+    ]
+    analysis.pricing_review = (
+        f"The {total} total is broken into {equipment} for equipment and "
+        f"{installation} for labor and installation materials. That is a meaningful "
+        "high-level breakdown for a replacement quote."
+    )
+
+
+def has_primary_equipment_matching_assessment(analysis: HVACAnalysis) -> bool:
+    return any(
+        assessment.materiality == "PRIMARY"
+        and "equipment compatibility"
+        in re.sub(r"[-_]+", " ", assessment.subject.lower())
+        for assessment in analysis.technical_assessments
+    )
+
+
+def deduplicate_equipment_matching_good_signs(analysis: HVACAnalysis) -> None:
+    """Keep one submitted-match positive instead of several AHRI restatements."""
+    if not has_primary_equipment_matching_assessment(analysis):
+        return
+
+    match_signs = []
+    independent_signs = []
+    for sign in analysis.good_signs:
+        normalized = " ".join(str(sign or "").lower().split())
+        is_match_sign = "ahri" in normalized or any(
+            term in normalized
+            for term in (
+                "matched combination",
+                "matched system",
+                "manufacturer match",
+                "models together",
+            )
+        )
+        if is_match_sign:
+            match_signs.append(sign)
+        else:
+            independent_signs.append(sign)
+
+    analysis.good_signs = independent_signs or match_signs[:1]
+
+
+def primary_equipment_matching_assessment(
+    analysis: HVACAnalysis,
+) -> Optional[TechnicalEvidenceAssessment]:
+    """Return the structured primary equipment-matching assessment, when present."""
+    for assessment in analysis.technical_assessments:
+        normalized_subject = re.sub(
+            r"[-_]+", " ", str(assessment.subject or "").lower()
+        )
+        normalized_details = " ".join(
+            [
+                normalized_subject,
+                *[str(item or "").lower() for item in assessment.material_gaps],
+                *[str(item or "").lower() for item in assessment.contradictions],
+            ]
+        )
+        canonical_matching_subject = "equipment compatibility" in normalized_subject
+        matching_subject = any(
+            phrase in normalized_subject
+            for phrase in (
+                "equipment matching",
+                "equipment match",
+                "equipment model",
+                "model selection",
+                "heat pump model",
+                "proposed heat pump system details",
+                "indoor outdoor combination",
+            )
+        )
+        matching_details = any(
+            term in normalized_details
+            for term in (
+                "exact model",
+                "indoor model",
+                "outdoor model",
+                "manufacturer documentation",
+                "matching documentation",
+                "ahri",
+                "equipment combination",
+            )
+        )
+        if (
+            assessment.materiality == "PRIMARY"
+            and (canonical_matching_subject or (matching_subject and matching_details))
+        ):
+            return assessment
+    return None
+
+
+def equipment_match_paperwork_contradiction(analysis: HVACAnalysis) -> bool:
+    """Recognize document-only conflicts without downgrading physical conflicts."""
+    assessment = primary_equipment_matching_assessment(analysis)
+    if assessment is None or assessment.diagnostic_evidence_status != "CONTRADICTORY":
+        return False
+    return bool(assessment.contradictions) and all(
+        any(term in conflict.lower() for term in ("document", "certificate", "ahri"))
+        and any(term in conflict.lower() for term in ("different", "does not list", "do not match", "does not match", "mismatch"))
+        and not any(term in conflict.lower() for term in ("refrigerant", "voltage", "phase", "controls", "physically", "cannot operate"))
+        for conflict in assessment.contradictions
+    )
+
+
+def equipment_match_customer_text(value: str) -> bool:
+    normalized = value.lower()
+    return any(term in normalized for term in (
+        "match", "ahri", "compatib", "indoor", "outdoor", "models",
+        "equipment combination", "operational viability",
+    ))
+
+
+def normalize_contradictory_equipment_matching_customer_fields(analysis: HVACAnalysis) -> None:
+    """Correct paperwork-only matching prose while preserving policy and other issues."""
+    if (
+        not equipment_match_paperwork_contradiction(analysis)
+        or replacement_basis_assessment(analysis) is not None
+    ):
+        return
+    analysis.equipment_analysis = (
+        "The matching document supplied with the quote lists different equipment than "
+        "the models being proposed, so it does not verify the quoted combination."
+    )
+    analysis.missing_information = (
+        "Clarify which exact indoor and outdoor models will actually be installed and "
+        "provide manufacturer or AHRI matching documentation for those exact models."
+    )
+    analysis.installation_concerns = (
+        "The installation scope may be reasonable, but the equipment combination should "
+        "be clarified before installation because the submitted matching document does "
+        "not correspond to the quoted models."
+    )
+    analysis.red_flags = [
+        "The equipment listed on the submitted match documentation does not match "
+        "the equipment being proposed.",
+        *[flag for flag in analysis.red_flags if not equipment_match_customer_text(flag)],
+    ]
+    analysis.contractor_questions = [
+        "Which exact indoor and outdoor models will actually be installed?",
+        "Can you provide the manufacturer or AHRI match documentation for those exact models?",
+        *[question for question in analysis.contractor_questions
+          if not equipment_match_customer_text(question)
+          and "another source" not in question.lower()],
+    ]
+
+
+def ensure_elective_replacement_basis_assessment(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Preserve an explicit elective basis when the model omits its stable assessment."""
+    if (
+        analysis.replacement_context != ReplacementContext.ELECTIVE
+        or replacement_basis_assessment(analysis) is not None
+    ):
+        return
+
+    normalized = " ".join(str(quote_text or "").lower().split())
+    elective_documented = any(
+        term in normalized
+        for term in (
+            "homeowner requested",
+            "proactive replacement",
+            "planned remodel",
+            "voluntary planned upgrade",
+        )
+    )
+    no_failure_claim = any(
+        term in normalized
+        for term in (
+            "no equipment failure is claimed",
+            "not a necessary repair",
+            "currently operating",
+        )
+    )
+    if not elective_documented or not no_failure_claim:
+        return
+
+    analysis.technical_assessments.append(
+        TechnicalEvidenceAssessment(
+            subject="Basis for full-system replacement",
+            materiality="PRIMARY",
+            diagnostic_evidence_status="ADEQUATE",
+            scope_support="APPROPRIATE",
+            documented_evidence=[
+                "The homeowner requested a proactive replacement during a planned remodel."
+            ],
+            material_gaps=[],
+            contradictions=[],
+        )
+    )
+
+
+def normalize_incomplete_equipment_matching_customer_fields(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Present an incomplete equipment match as an open documentation question."""
+    assessment = primary_equipment_matching_assessment(analysis)
+    if (
+        assessment is None
+        or assessment.diagnostic_evidence_status != "INCOMPLETE"
+        or assessment.scope_support != "PARTIALLY_DEFINED"
+        or assessment.contradictions
+    ):
+        return
+
+    normalized_quote = " ".join(str(quote_text or "").lower().split())
+    outdoor_model_identified = any(
+        term in normalized_quote
+        for term in ("outdoor heat pump:", "outdoor unit:", "condenser:")
+    )
+
+    analysis.equipment_analysis = (
+        "The proposed equipment combination may be valid, but the quote does not "
+        "provide enough exact model and match information to verify it yet."
+    )
+    if outdoor_model_identified:
+        analysis.missing_information = (
+            "The exact indoor equipment and documentation tying it to the proposed outdoor "
+            "equipment are not included. Those details are needed to verify the match and "
+            "any combination-specific efficiency rating before approval."
+        )
+        analysis.installation_concerns = (
+            "The replacement scope may be reasonable, but the exact indoor equipment still "
+            "needs to be identified before compatibility can be verified."
+        )
+    else:
+        analysis.missing_information = (
+            "The exact indoor and outdoor equipment models and documentation tying them "
+            "together are not included. Those details are needed to verify the proposed match."
+        )
+        analysis.installation_concerns = (
+            "The proposal includes replacement and startup work, but the exact new equipment "
+            "still needs to be identified before compatibility can be verified."
+        )
+
+    matching_terms = (
+        "ahri",
+        "match",
+        "compatib",
+        "indoor model",
+        "air handler model",
+        "equipment combination",
+        "seer",
+        "efficiency rating",
+    )
+    analysis.red_flags = [
+        flag
+        for flag in analysis.red_flags
+        if not any(term in str(flag or "").lower() for term in matching_terms)
+    ]
+
+    safe_signs = []
+    for sign in analysis.good_signs:
+        normalized = " ".join(str(sign or "").lower().split())
+        if (
+            analysis.replacement_context == ReplacementContext.ELECTIVE
+            and "remodel" in normalized
+            and any(term in normalized for term in ("streamlin", "easier", "facilitat"))
+        ):
+            continue
+        if (
+            analysis.replacement_context == ReplacementContext.ELECTIVE
+            and any(term in normalized for term in ("startup", "verification"))
+            and any(
+                term in normalized
+                for term in (
+                    "ensure",
+                    "guarantee",
+                    "successful replacement",
+                    "proper operation",
+                    "operates as intended",
+                    "thoroughness",
+                )
+            )
+        ):
+            safe_signs.append("The proposal includes startup verification.")
+            continue
+        weak_no_conflict_sign = (
+            any(
+                phrase in normalized
+                for phrase in (
+                    "no conflicting information",
+                    "no contradiction",
+                    "nothing inconsistent",
+                )
+            )
+            and any(
+                term in normalized
+                for term in ("equipment", "match", "model", "combination")
+            )
+        )
+        if weak_no_conflict_sign:
+            continue
+        if any(term in normalized for term in ("txv", "metering device")) and any(
+            term in normalized
+            for term in ("proper refrigerant flow", "optimal", "guarantee", "ensure")
+        ):
+            safe_signs.append(
+                "The quote identifies a factory metering device, showing that the "
+                "proposal is addressing component compatibility; final applicability "
+                "depends on the exact matched equipment."
+            )
+        else:
+            safe_signs.append(sign)
+    analysis.good_signs = list(dict.fromkeys(safe_signs))
+
+    retained_questions = [
+        question
+        for question in analysis.contractor_questions
+        if contractor_question_category(question)
+        not in {
+            "equipment_model",
+            "equipment_match_documentation",
+            "equipment_efficiency",
+            "compatibility",
+            "verification",
+            "pricing",
+        }
+        and not (
+            analysis.replacement_context == ReplacementContext.ELECTIVE
+            and any(
+                term in " ".join(str(question or "").lower().split())
+                for term in (
+                    "heat pump",
+                    "equipment model",
+                    "efficiency goal",
+                    "efficiency rating",
+                    "existing ductwork",
+                    "startup",
+                    "operates effectively",
+                    "operation after installation",
+                )
+            )
+        )
+    ]
+    model_question = (
+        "What exact indoor or air-handler model are you planning to install?"
+        if outdoor_model_identified
+        else "What exact indoor and outdoor equipment models are you planning to install?"
+    )
+    if analysis.replacement_context == ReplacementContext.ELECTIVE:
+        matching_questions = [
+            "What exact indoor and outdoor equipment models are being installed, and can "
+            "you provide the manufacturer or AHRI match for that combination?"
+        ]
+    else:
+        matching_questions = [
+            model_question,
+            "Can you show me the AHRI certificate or manufacturer match for the exact "
+            "indoor and outdoor models?",
+        ]
+    if re.search(r"\b(?:seer2?|eer2?|hspf2?|energy star)\b", quote_text, re.IGNORECASE):
+        matching_questions.append(
+            "Does the quoted efficiency rating apply to those exact indoor and outdoor models?"
+        )
+    analysis.contractor_questions = [*matching_questions, *retained_questions]
+
+
+def _startup_concern(value: str) -> bool:
+    normalized = " ".join(str(value or "").lower().split())
+    startup_terms = (
+        "startup",
+        "commissioning",
+        "final operation",
+        "operational verification",
+        "manufacturer procedures",
+    )
+    concern_terms = (
+        "confirm",
+        "clarif",
+        "missing",
+        "not documented",
+        "does not document",
+        "should",
+        "need to",
+        "needs to",
+        "unclear",
+    )
+    return any(term in normalized for term in startup_terms) and any(
+        term in normalized for term in concern_terms
+    )
+
+
+def _without_startup_concern_sentences(value: str) -> str:
+    sentences = re.split(r"(?<=[.!?])\s+", str(value or "").strip())
+    return " ".join(
+        sentence for sentence in sentences if sentence and not _startup_concern(sentence)
+    ).strip()
+
+
+def normalize_documented_replacement_startup(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Do not re-request generic startup work already included in a replacement."""
+    if (
+        not has_primary_equipment_matching_assessment(analysis)
+        or analysis.decision.technical_support != "SUPPORTED"
+    ):
+        return
+
+    normalized_quote = quote_text.lower()
+    startup_documented = any(
+        term in normalized_quote
+        for term in (
+            "complete the installation and startup",
+            "startup and commissioning",
+            "complete startup and commissioning",
+            "verify heating and cooling operation",
+            "final system operation",
+            "startup sheet",
+        )
+    )
+    if not startup_documented:
+        return
+
+    structured_startup_gap = any(
+        assessment.materiality in {"PRIMARY", "MATERIAL_SECONDARY"}
+        and any(
+            term in " ".join(
+                [assessment.subject, *assessment.material_gaps, *assessment.contradictions]
+            ).lower()
+            for term in ("startup", "commission", "final operation")
+        )
+        and (
+            assessment.diagnostic_evidence_status
+            in {"INCOMPLETE", "ABSENT", "CONTRADICTORY"}
+            or assessment.scope_support in {"PARTIALLY_DEFINED", "UNSUPPORTED"}
+        )
+        for assessment in analysis.technical_assessments
+    )
+    if structured_startup_gap:
+        return
+
+    if _startup_concern(analysis.missing_information):
+        remaining = _without_startup_concern_sentences(analysis.missing_information)
+        analysis.missing_information = remaining or (
+            "No important missing information was identified that appears likely to "
+            "change the recommendation."
+        )
+    if _startup_concern(analysis.installation_concerns):
+        remaining = _without_startup_concern_sentences(analysis.installation_concerns)
+        analysis.installation_concerns = remaining or (
+            "The quote includes startup and final operation checks for the replacement."
+        )
+
+    analysis.red_flags = [
+        flag for flag in analysis.red_flags if not _startup_concern(flag)
+    ]
+    analysis.contractor_questions = [
+        question
+        for question in analysis.contractor_questions
+        if not _startup_concern(question)
+    ]
+    analysis.decision.required_actions = [
+        action
+        for action in analysis.decision.required_actions
+        if not _startup_concern(action)
+    ]
 
 
 def remove_pricing_transparency_red_flags(analysis: HVACAnalysis) -> None:
@@ -2950,14 +3920,679 @@ def normalize_heat_exchanger_customer_fields(analysis: HVACAnalysis) -> None:
             analysis.contractor_questions = unrelated_questions
 
 
+def replacement_basis_assessment(
+    analysis: HVACAnalysis,
+) -> Optional[TechnicalEvidenceAssessment]:
+    """Return the canonical primary replacement-basis assessment, when present."""
+    for assessment in analysis.technical_assessments:
+        normalized_subject = re.sub(
+            r"[-_]+", " ", str(assessment.subject or "").lower()
+        )
+        if assessment.materiality == "PRIMARY" and (
+            "basis for full system replacement" in normalized_subject
+            or "basis for replacement" in normalized_subject
+            or "replacement basis" in normalized_subject
+        ):
+            return assessment
+    return None
+
+
+def replacement_basis_question(value: str) -> bool:
+    """Identify questions whose main purpose is explaining why replacement is proposed."""
+    normalized = " ".join(str(value or "").lower().split())
+    replacement_terms = ("replace", "replacement", "existing system", "existing equipment")
+    basis_terms = (
+        "why",
+        "what specifically",
+        "what failed",
+        "what finding",
+        "what condition",
+        "repair considered",
+        "repair option",
+        "repairing",
+        "better option",
+        "better choice",
+        "necessary",
+        "elective",
+    )
+    explicit_replacement_question = any(
+        term in normalized for term in replacement_terms
+    ) and any(term in normalized for term in basis_terms)
+    existing_system_problem_question = (
+        any(
+            term in normalized
+            for term in ("existing system", "existing equipment", "existing hvac system")
+        )
+        and any(
+            term in normalized
+            for term in ("what is wrong", "what's wrong", "what specific problem", "what problem")
+        )
+    )
+    return explicit_replacement_question or existing_system_problem_question
+
+
+def generic_future_reliability_question(value: str) -> bool:
+    """Identify speculative installation/reliability questions unrelated to replacement basis."""
+    normalized = " ".join(str(value or "").lower().split())
+    future_reliability = any(
+        term in normalized
+        for term in ("reliable", "reliability", "avoid similar issues", "future issues")
+    )
+    installation_context = any(
+        term in normalized
+        for term in ("new installation", "new system", "after installation", "in the future")
+    )
+    return future_reliability and installation_context
+
+
+def replacement_diagnostic_checklist_question(value: str) -> bool:
+    """Identify duplicate test-checklist questions aimed at the replacement recommendation."""
+    normalized = " ".join(str(value or "").lower().split())
+    diagnostic_terms = ("diagnostic", "measurement", "tests", "testing", "specific findings")
+    recommendation_terms = ("recommendation", "replacement", "replace", "necessary")
+    return any(term in normalized for term in diagnostic_terms) and any(
+        term in normalized for term in recommendation_terms
+    )
+
+
+def plain_language_prioritization(value: str) -> str:
+    """Translate internal scoring language before text reaches customer renderers."""
+    result = str(value or "")
+    replacements = (
+        ("the technical concern is primary", "this is the main concern"),
+        ("the primary concern is technical", "this is the main concern"),
+        ("this issue is of primary importance", "this is the main concern"),
+        ("the material concern is", "the concern is"),
+        ("the principal deficiency is", "the main problem is"),
+        ("the dominant concern is", "the bigger issue is"),
+        ("the primary driver of the recommendation is", "the recommendation mainly comes from"),
+        ("technical deficiencies outweigh pricing concerns", "clear up the technical issue before focusing on price"),
+        ("pricing is secondary to the technical concern", "the price could use more detail, but clear up the technical issue first"),
+        ("the evidence is insufficient to substantiate", "the quote doesn't show enough to support"),
+        ("the rationale is insufficient", "the quote doesn't clearly explain"),
+        ("material information is absent", "important information is missing"),
+    )
+    for formal, natural in replacements:
+        result = re.sub(re.escape(formal), natural, result, flags=re.IGNORECASE)
+    return result
+
+
+def calibrate_partial_replacement_basis(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Keep documented condition/history context distinct from an unsupported assertion."""
+    item = replacement_basis_assessment(analysis)
+    if item is None or item.contradictions:
+        return
+    if item.diagnostic_evidence_status not in {"ABSENT", "INCOMPLETE"}:
+        return
+    if item.scope_support not in {"UNSUPPORTED", "PARTIALLY_DEFINED"}:
+        return
+
+    normalized = " ".join(str(quote_text or "").lower().split())
+    has_age = bool(re.search(r"\b\d{1,2}[- ]years?[- ]old\b", normalized))
+    has_condition = any(
+        term in normalized
+        for term in ("poor condition", "deteriorat", "worn condition", "severe condition")
+    )
+    has_service_history = any(
+        term in normalized
+        for term in ("repeated service", "recurring problem", "repeated repair", "major repairs")
+    )
+    if not (has_age and has_condition and has_service_history):
+        return
+
+    replacement = item.model_copy(
+        update={
+            "diagnostic_evidence_status": "INCOMPLETE",
+            "scope_support": "PARTIALLY_DEFINED",
+        }
+    )
+    analysis.technical_assessments = [
+        replacement if candidate is item else candidate
+        for candidate in analysis.technical_assessments
+    ]
+
+
+def calibrate_elective_incomplete_equipment_match(
+    analysis: HVACAnalysis,
+    quote_text: str,
+) -> None:
+    """Treat unidentified elective replacement equipment as incomplete, not incompatible."""
+    if analysis.replacement_context != ReplacementContext.ELECTIVE:
+        return
+    item = primary_equipment_matching_assessment(analysis)
+
+    normalized = " ".join(str(quote_text or "").lower().split())
+    elective_documented = any(
+        term in normalized
+        for term in (
+            "homeowner requested",
+            "proactive replacement",
+            "planned remodel",
+            "voluntary planned upgrade",
+        )
+    )
+    replacement_equipment_proposed = "replacement" in normalized and any(
+        term in normalized for term in ("heat pump", "air conditioner", "furnace", "hvac system")
+    )
+    documented_conflict = any(
+        term in normalized
+        for term in (
+            "incompatible equipment",
+            "conflicting match information",
+            "invalid combination",
+            "models do not match",
+        )
+    )
+    if not elective_documented or not replacement_equipment_proposed or documented_conflict:
+        return
+
+    def labeled_model_is_present(labels: str) -> bool:
+        values = re.findall(
+            rf"(?im)^\s*[-*]?\s*(?:{labels})\s*:\s*(.+)$",
+            quote_text,
+        )
+        return any(
+            re.search(r"\b(?=[a-z0-9.-]*[a-z])(?=[a-z0-9.-]*\d)[a-z0-9.-]{4,}\b", value, re.I)
+            for value in values
+        )
+
+    exact_outdoor_model = labeled_model_is_present(
+        r"outdoor heat pump|outdoor unit|condenser"
+    )
+    exact_indoor_model = labeled_model_is_present(
+        r"indoor air handler|indoor unit|air handler|air-handler|furnace|coil"
+    )
+    submitted_match_documentation = bool(
+        re.search(
+            r"\b(?:ahri\s+(?:certificate|reference|ref(?:erence)?\.?|number|no\.?)|"
+            r"manufacturer(?:'s)?\s+(?:match|matching|approved combination)|"
+            r"oem[- ]approved combination)\b",
+            quote_text,
+            re.IGNORECASE,
+        )
+    )
+    if exact_outdoor_model and exact_indoor_model and submitted_match_documentation:
+        return
+
+    if item is None:
+        analysis.technical_assessments.append(
+            TechnicalEvidenceAssessment(
+                subject="Quoted indoor/outdoor equipment compatibility",
+                materiality="PRIMARY",
+                diagnostic_evidence_status="INCOMPLETE",
+                scope_support="PARTIALLY_DEFINED",
+                documented_evidence=[
+                    "The proposal identifies a replacement heat-pump system."
+                ],
+                material_gaps=[
+                    "Exact indoor and outdoor models and submitted matching documentation are missing."
+                ],
+                contradictions=[],
+            )
+        )
+        return
+
+    if item.contradictions:
+        return
+
+    if (
+        item.diagnostic_evidence_status
+        not in {"CONFIRMED", "ADEQUATE", "ABSENT", "INCOMPLETE"}
+        or item.scope_support
+        not in {"APPROPRIATE", "UNSUPPORTED", "PARTIALLY_DEFINED"}
+    ):
+        return
+
+    calibrated = item.model_copy(
+        update={
+            "diagnostic_evidence_status": "INCOMPLETE",
+            "scope_support": "PARTIALLY_DEFINED",
+        }
+    )
+    analysis.technical_assessments = [
+        calibrated if candidate is item else candidate
+        for candidate in analysis.technical_assessments
+    ]
+
+
+def _without_customer_sentences(value: str, prohibited_phrases: tuple[str, ...]) -> str:
+    """Remove customer-facing sentences containing narrowly prohibited boilerplate."""
+    sentences = re.split(r"(?<=[.!?])\s+", str(value or "").strip())
+    return " ".join(
+        sentence
+        for sentence in sentences
+        if sentence
+        and not any(phrase in sentence.lower() for phrase in prohibited_phrases)
+    ).strip()
+
+
+def _installation_scope_overclaim(value: str) -> bool:
+    """Identify certainty claims that a proposed scope cannot establish by itself."""
+    normalized = " ".join(str(value or "").lower().split())
+    absolute_steps = any(
+        phrase in normalized
+        for phrase in (
+            "all necessary steps",
+            "all necessary installation steps",
+            "all crucial steps",
+            "all crucial installation steps",
+            "all required installation steps",
+        )
+    )
+    guaranteed_result = any(
+        phrase in normalized
+        for phrase in (
+            "ensures proper installation",
+            "ensure proper installation",
+            "ensures correct operation",
+            "ensure correct operation",
+            "guarantees performance",
+            "guarantees proper operation",
+            "installation quality is guaranteed",
+            "overall effectiveness",
+            "effectiveness of the new system",
+            "comprehensive approach",
+            "essential to confirm operational performance",
+        )
+    )
+    comprehensive_guarantee = (
+        "comprehensive" in normalized
+        and "scope" in normalized
+        and any(term in normalized for term in ("ensur", "guarantee"))
+    )
+    assured_quality = any(term in normalized for term in ("assured", "guaranteed")) and any(
+        term in normalized for term in ("installation quality", "system performance")
+    )
+    functionality_guarantee = bool(re.search(
+        r"\b(?:ensur(?:e|es|ing)|guarantee(?:s|ing|d)?)\b[^.!?]{0,90}"
+        r"(?:functionality|correct operation|proper performance|successful installation)",
+        normalized,
+    ))
+    return absolute_steps or guaranteed_result or comprehensive_guarantee or assured_quality or functionality_guarantee
+
+
+def _without_installation_scope_overclaims(value: str) -> str:
+    """Remove sentences that turn listed replacement scope into guaranteed results."""
+    sentences = re.split(r"(?<=[.!?])\s+", str(value or "").strip())
+    return " ".join(
+        sentence
+        for sentence in sentences
+        if sentence and not _installation_scope_overclaim(sentence)
+    ).strip()
+
+
+def _supported_compressor_replacement_explanation(quote_text: str) -> str:
+    """Explain a compressor-driven replacement using documented combined context."""
+    normalized = " ".join(str(quote_text or "").split())
+    lower = normalized.lower()
+    if "compressor" not in lower or not any(
+        term in lower for term in ("grounded", "continuity to ground", "electrically grounded")
+    ):
+        return ""
+
+    repair_match = re.search(
+        r"(?:compressor[^.$]{0,100}(?:repair|replace)|repair[^.$]{0,100}compressor)"
+        r"[^$]{0,60}(?P<amount>\$\s*\d[\d,]*(?:\.\d{2})?)",
+        normalized,
+        re.IGNORECASE,
+    )
+    age_match = re.search(r"\b(?P<age>\d{1,2})[- ]year[- ]old\b", lower)
+    repair_amount = repair_match.group("amount").replace(" ", "") if repair_match else ""
+    age = age_match.group("age") if age_match else ""
+    has_history = any(
+        phrase in lower
+        for phrase in (
+            "prior major repair",
+            "major repairs",
+            "repeated repair",
+            "repair history",
+        )
+    )
+
+    diagnosis = (
+        "The quote documents electrical testing showing that the compressor is grounded."
+    )
+    context_parts = []
+    if repair_amount:
+        context_parts.append(f"the {repair_amount} compressor repair option")
+    if age:
+        context_parts.append(f"the {age}-year-old system")
+    if has_history:
+        context_parts.append("its documented major-repair history")
+    if not context_parts:
+        return diagnosis
+    return (
+        f"{diagnosis} Considering {', '.join(context_parts)}, replacement is a reasonable "
+        "option instead of putting more money into the existing equipment."
+    )
+
+
+def normalize_replacement_basis_customer_fields(
+    analysis: HVACAnalysis,
+    quote_text: str = "",
+) -> None:
+    """Align replacement-facing prose and questions with the structured basis assessment."""
+    assessment = replacement_basis_assessment(analysis)
+    if assessment is None:
+        return
+
+    context = analysis.replacement_context
+    status = assessment.diagnostic_evidence_status
+    scope = assessment.scope_support
+    supported_basis = status in {"CONFIRMED", "ADEQUATE"} and scope == "APPROPRIATE"
+    partial_basis = status == "INCOMPLETE" or scope == "PARTIALLY_DEFINED"
+    unsupported_basis = status in {"ABSENT", "CONTRADICTORY"} or scope == "UNSUPPORTED"
+
+    unrelated_questions = [
+        question
+        for question in analysis.contractor_questions
+        if not replacement_basis_question(question)
+        and contractor_question_category(question) != "replacement_basis"
+    ]
+
+    if supported_basis:
+        if context == ReplacementContext.ELECTIVE:
+            replacement_summary = (
+                "This appears to be a planned upgrade requested by the homeowner, not a "
+                "replacement caused by a confirmed equipment failure."
+            )
+            normalized_quote = " ".join(str(quote_text or "").lower().split())
+            if any(term in normalized_quote for term in ("improve efficiency", "higher efficiency")):
+                analysis.project_overview = (
+                    "The homeowner requested a planned heat-pump upgrade and wants higher "
+                    "efficiency. The quote does not claim the existing system has failed."
+                )
+        else:
+            replacement_summary = _supported_compressor_replacement_explanation(quote_text) or (
+                "The quote gives a clear reason for replacement, and the documented "
+                "findings and context support that choice."
+            )
+        matching = primary_equipment_matching_assessment(analysis)
+        matching_supported = bool(
+            matching
+            and matching.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"}
+            and matching.scope_support == "APPROPRIATE"
+        )
+        matching_incomplete = bool(
+            matching
+            and matching.diagnostic_evidence_status == "INCOMPLETE"
+            and matching.scope_support == "PARTIALLY_DEFINED"
+        )
+        if matching_supported:
+            matching_summary = (
+                " The submitted matching documentation supports the proposed indoor and "
+                "outdoor equipment combination."
+            )
+        elif matching_incomplete:
+            matching_summary = (
+                " The planned replacement itself makes sense, but the exact proposed "
+                "equipment and matching documentation still need to be identified."
+            )
+        else:
+            matching_summary = ""
+        analysis.equipment_analysis = f"{replacement_summary}{matching_summary}".strip()
+
+        prohibited_scope_phrases = (
+            "all necessary installation steps",
+            "all required installation steps",
+            "nothing is overlooked",
+            "no aspect of the system's operation is overlooked",
+            "ensures proper operation",
+            "guarantees proper operation",
+            "confirm local code requirements",
+            "check local code requirements",
+            "obtaining permits if",
+            "obtain permits if",
+            "all crucial steps",
+            "ensure proper installation",
+            "ensures correct operation",
+            "ensure the new system functions correctly",
+            "ensures the new system functions correctly",
+            "guarantees performance",
+            "overall effectiveness",
+            "effectiveness of the new system",
+        )
+        analysis.installation_concerns = _without_customer_sentences(
+            analysis.installation_concerns,
+            prohibited_scope_phrases,
+        )
+        analysis.installation_concerns = _without_installation_scope_overclaims(
+            analysis.installation_concerns
+        )
+        if not analysis.installation_concerns:
+            analysis.installation_concerns = (
+                "The proposal documents removal of the existing equipment, installation "
+                "of the listed indoor and outdoor units, and startup verification."
+            )
+
+        factual_scope_sign = (
+            "The proposal includes removal of the existing equipment, installation of "
+            "the listed indoor and outdoor units, and startup verification."
+        )
+        cleaned_good_signs = []
+        removed_scope_overclaim = False
+        for sign in analysis.good_signs:
+            if _installation_scope_overclaim(sign):
+                removed_scope_overclaim = True
+                continue
+            cleaned_good_signs.append(sign)
+        if removed_scope_overclaim and factual_scope_sign not in cleaned_good_signs:
+            cleaned_good_signs.append(factual_scope_sign)
+        if context == ReplacementContext.ELECTIVE and any(
+            term in " ".join(str(quote_text or "").lower().split())
+            for term in ("homeowner requested", "proactive replacement", "planned remodel")
+        ):
+            elective_sign = (
+                "The proposal clearly identifies the replacement as a planned, "
+                "homeowner-requested upgrade."
+            )
+            if not any(
+                "homeowner-requested" in str(sign or "").lower()
+                or "proactive" in str(sign or "").lower()
+                for sign in cleaned_good_signs
+            ):
+                cleaned_good_signs.append(elective_sign)
+        analysis.good_signs = cleaned_good_signs
+
+        has_material_warranty_gap = any(
+            assessment_item.materiality in {"PRIMARY", "MATERIAL_SECONDARY"}
+            and any(
+                "warranty" in str(value or "").lower()
+                for value in (
+                    *assessment_item.material_gaps,
+                    *assessment_item.contradictions,
+                )
+            )
+            for assessment_item in analysis.technical_assessments
+        ) or any(
+            "warranty" in str(action or "").lower()
+            for action in analysis.decision.required_actions
+        )
+        missing_prohibitions = (
+            "confirm local code requirements",
+            "check local code requirements",
+            "obtaining permits if",
+            "obtain permits if",
+        )
+        if not has_material_warranty_gap:
+            missing_prohibitions += (
+                "warranty terms are not specified",
+                "warranty is not specified",
+                "warranty information is missing",
+                "missing warranty",
+            )
+        analysis.missing_information = _without_customer_sentences(
+            analysis.missing_information,
+            missing_prohibitions,
+        ) or (
+            "No important missing information was identified that appears likely to "
+            "change the recommendation."
+        )
+        analysis.contractor_questions = unrelated_questions
+        return
+
+    if partial_basis:
+        normalized_quote = " ".join(str(quote_text or "").lower().split())
+        acknowledges_condition_history = (
+            bool(re.search(r"\b\d{1,2}[- ]years?[- ]old\b", normalized_quote))
+            and any(term in normalized_quote for term in ("poor condition", "deteriorat"))
+            and any(
+                term in normalized_quote
+                for term in ("repeated service", "recurring problem", "repeated repair")
+            )
+        )
+        if acknowledges_condition_history:
+            replacement_summary = (
+                "The system's age, reported condition, and repeated service history make "
+                "replacement a reasonable possibility, but the quote doesn't clearly "
+                "explain what is wrong now or why replacement is a better choice than repair."
+            )
+        else:
+            replacement_summary = (
+                "Replacement may make sense, but the quote doesn't clearly explain why it "
+                "is a better choice than repairing or continuing to use the existing equipment."
+            )
+        prior_analysis = analysis.equipment_analysis.rstrip()
+        if "equipment combination" in prior_analysis.lower():
+            analysis.equipment_analysis = f"{replacement_summary} {prior_analysis}".strip()
+        else:
+            analysis.equipment_analysis = replacement_summary
+        analysis.missing_information = (
+            "The quote does not clearly identify the current problem or explain why "
+            "replacement is recommended instead of repair."
+        )
+        analysis.installation_concerns = (
+            "The proposed replacement work may be reasonable, but whether replacement is "
+            "the best course depends on clarifying the existing system's condition and "
+            "repair options."
+        )
+        replacement_flag_terms = (
+            "replacement",
+            "existing system",
+            "existing equipment",
+            "repair option",
+            "repair rationale",
+            "specific system issue",
+            "specific diagnostic finding",
+            "no diagnostic finding",
+            "does not explain what is wrong",
+            "doesn't explain what is wrong",
+        )
+        if not assessment.contradictions:
+            analysis.red_flags = [
+                flag
+                for flag in analysis.red_flags
+                if not any(term in str(flag or "").lower() for term in replacement_flag_terms)
+            ]
+        if context == ReplacementContext.ECONOMIC_CONDITION:
+            basis_question = (
+                "What repair cost, equipment condition, or service history makes replacement "
+                "the better option?"
+            )
+        elif context in {ReplacementContext.FAILURE_DRIVEN, ReplacementContext.SAFETY_DRIVEN}:
+            basis_question = (
+                "What finding supports the failure being used to recommend replacement?"
+            )
+        else:
+            basis_question = (
+                "Why is replacement a better choice than repairing or continuing to use "
+                "the existing equipment?"
+            )
+        analysis.contractor_questions = [
+            basis_question,
+            *[
+                question
+                for question in unrelated_questions
+                if not generic_future_reliability_question(question)
+            ],
+        ]
+        return
+
+    if unsupported_basis:
+        replacement_summary = (
+            "The quote recommends a full replacement, but it doesn't show enough to explain "
+            "why the existing system needs to be replaced. System age and a poor-cooling "
+            "complaint alone do not establish that replacement is the right next step."
+        )
+        analysis.equipment_analysis = replacement_summary
+        analysis.missing_information = (
+            "The quote does not clearly explain what is wrong with the existing system or "
+            "what technical, condition, or economic reason supports replacement instead of "
+            "repair or continued operation."
+        )
+        analysis.installation_concerns = (
+            "The proposal describes the replacement work, but it does not show enough to "
+            "explain why replacing the existing system is the right course."
+        )
+        if status == "ABSENT" and not assessment.contradictions:
+            replacement_gap_terms = (
+                "replacement",
+                "failed component",
+                "diagnostic measurement",
+                "diagnostic finding",
+                "repair option",
+                "repair is impractical",
+                "existing system",
+                "existing equipment",
+            )
+            unrelated_flags = [
+                flag
+                for flag in analysis.red_flags
+                if not any(
+                    term in str(flag or "").lower()
+                    for term in replacement_gap_terms
+                )
+            ]
+            analysis.red_flags = [
+                "The quote recommends full system replacement but does not document a "
+                "clear technical, condition, economic, or elective reason for replacing "
+                "the existing system.",
+                *unrelated_flags,
+            ]
+        analysis.contractor_questions = [
+            "What is currently wrong with the existing system, and why are you recommending "
+            "replacement instead of repair?",
+            *[
+                question
+                for question in unrelated_questions
+                if not replacement_diagnostic_checklist_question(question)
+                and not generic_future_reliability_question(question)
+            ],
+        ]
+
+
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if replacement_basis_question(question):
+        return "replacement_basis"
     if any(
         term in normalized
         for term in ("price", "pricing", "cost", "itemiz", "breakdown", "quoted total", "charges")
     ):
         return "pricing"
+    if (
+        any(term in normalized for term in ("ahri", "manufacturer match"))
+        and any(term in normalized for term in ("indoor", "outdoor", "model"))
+    ):
+        return "equipment_match_documentation"
+    if "efficiency rating" in normalized and any(
+        term in normalized for term in ("exact", "model", "combination")
+    ):
+        return "equipment_efficiency"
+    asks_for_indoor_model = (
+        any(term in normalized for term in ("indoor", "air handler", "air-handler"))
+        and "model" in normalized
+        and any(
+            term in normalized
+            for term in ("what", "which", "exact", "specific", "identify", "provide")
+        )
+    )
+    if asks_for_indoor_model:
+        return "equipment_model"
     if any(
         term in normalized
         for term in (
@@ -2970,6 +4605,8 @@ def contractor_question_category(question: str) -> str:
             "proper refrigerant charge",
             "cooling performance",
             "final performance",
+            "system performance",
+            "performance after installation",
             "final operation",
             "confirm final",
         )
@@ -3022,18 +4659,64 @@ def deterministic_pricing_question(
     if quote_count and quote_count > 1:
         return MULTI_QUOTE_PRICING_QUESTION
 
+    replacement_total = ""
+    if replacement_basis_assessment(analysis) or has_primary_equipment_matching_assessment(analysis):
+        replacement_total = _labeled_quote_amount(
+            quote_text,
+            (
+                "total replacement price",
+                "replacement total",
+                "total installed price",
+                "total price",
+            ),
+        )
     amount_match = re.search(
         r"[$£€]\s*\d[\d,]*(?:\.\d{2})?",
         " ".join((quote_text, analysis.pricing_review, analysis.project_overview)),
     )
-    amount = amount_match.group(0).replace(" ", "") if amount_match else ""
+    amount = replacement_total or (
+        amount_match.group(0).replace(" ", "") if amount_match else ""
+    )
     total_phrase = (
         f" included in the {amount} total"
         if amount
         else " included in the quoted total"
     )
 
-    if refrigerant_context(analysis, quote_text):
+    pricing_context = " ".join(
+        (
+            quote_text,
+            analysis.project_overview,
+            analysis.equipment_analysis,
+            analysis.pricing_review,
+        )
+    )
+    normalized_quote = pricing_context.lower()
+    refrigerant_is_priced_scope = any(
+        term in normalized_quote
+        for term in (
+            "add refrigerant",
+            "adding refrigerant",
+            "refrigerant recharge",
+            "recharge refrigerant",
+            "recharge",
+            "refrigerant repair",
+            "refrigerant cost",
+            "refrigerant charge:",
+            "refrigerant price",
+            "per pound",
+            "per lb",
+        )
+    ) or bool(
+        re.search(
+            r"(?:refrigerant[^\n$]{0,50}[$£€]\s*\d|"
+            r"[$£€]\s*\d[^\n]{0,50}refrigerant)",
+            pricing_context,
+            re.IGNORECASE,
+        )
+    )
+
+    if refrigerant_context(analysis, quote_text) and refrigerant_is_priced_scope:
         return (
             "Can you provide an itemized breakdown of the refrigerant, labor, and "
             f"other charges{total_phrase}?"
@@ -3137,6 +4820,7 @@ def build_homeowner_takeaway(
     decision: HVACDecision,
     red_flags: List[str],
     good_signs: List[str],
+    equipment_match_documented: bool = False,
 ) -> str:
     """Interpret the canonical technical conclusion and immediate next step."""
     if decision.verdict == "GET_A_SECOND_OPINION":
@@ -3157,7 +4841,10 @@ def build_homeowner_takeaway(
             "those questions before you approve the work."
         )
 
-    takeaway = "The diagnosis and planned work make sense based on what the quote shows."
+    if equipment_match_documented:
+        takeaway = "The submitted paperwork supports the proposed equipment combination."
+    else:
+        takeaway = "The diagnosis and planned work make sense based on what the quote shows."
     if good_signs:
         takeaway += f" One documented technical strength: {good_signs[0]}"
         if not takeaway.endswith((".", "!", "?")):
@@ -3264,10 +4951,14 @@ def build_contractor_questions(
     priority = {
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
-        "repair_scope": 2,
-        "compatibility": 3,
-        "verification": 4,
-        "warranty": 5,
+        "replacement_basis": 2,
+        "equipment_model": 3,
+        "equipment_match_documentation": 4,
+        "equipment_efficiency": 5,
+        "repair_scope": 6,
+        "compatibility": 7,
+        "verification": 8,
+        "warranty": 9,
     }
     categorized_questions = sorted(
         questions_by_category.items(),
@@ -3290,6 +4981,10 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+
+    calibrate_partial_replacement_basis(finalized, quote_text)
+    ensure_elective_replacement_basis_assessment(finalized, quote_text)
+    calibrate_elective_incomplete_equipment_match(finalized, quote_text)
 
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
@@ -3315,6 +5010,12 @@ def finalize_customer_analysis(
     normalize_project_overview(finalized, quote_text)
     normalize_refrigerant_customer_fields(finalized, quote_text)
     normalize_heat_exchanger_customer_fields(finalized)
+    normalize_replacement_pricing_transparency(finalized, quote_text)
+    deduplicate_equipment_matching_good_signs(finalized)
+    normalize_incomplete_equipment_matching_customer_fields(finalized, quote_text)
+    normalize_contradictory_equipment_matching_customer_fields(finalized)
+    normalize_replacement_basis_customer_fields(finalized, quote_text)
+    normalize_documented_replacement_startup(finalized, quote_text)
     if not finalized.missing_information.strip():
         finalized.missing_information = (
             "No important missing information was identified that appears likely to "
@@ -3340,8 +5041,135 @@ def finalize_customer_analysis(
         finalized.decision,
         finalized.red_flags,
         finalized.good_signs,
+        equipment_match_documented=(
+            finalized.decision.technical_support == "SUPPORTED"
+            and has_primary_equipment_matching_assessment(finalized)
+        ),
     )
     finalized.bottom_line = build_bottom_line(finalized.decision)
+    finalized_replacement_basis = replacement_basis_assessment(finalized)
+    if finalized_replacement_basis and (
+        finalized_replacement_basis.diagnostic_evidence_status == "INCOMPLETE"
+        or finalized_replacement_basis.scope_support == "PARTIALLY_DEFINED"
+    ):
+        if finalized.replacement_context == ReplacementContext.ECONOMIC_CONDITION:
+            finalized.homeowner_takeaway = (
+                "The system's age, reported condition, and repeated service history make "
+                "replacement a reasonable possibility. Before approving it, ask what is "
+                "wrong now and why replacement is preferred over repair."
+            )
+        finalized.bottom_line = (
+            "Replacement may make sense, but the quote should explain what is wrong with "
+            "the existing equipment and why replacement is preferred before you approve it."
+        )
+    elif finalized_replacement_basis and (
+        finalized_replacement_basis.diagnostic_evidence_status in {"ABSENT", "CONTRADICTORY"}
+        or finalized_replacement_basis.scope_support == "UNSUPPORTED"
+    ):
+        finalized.banner_explanation = (
+            "The quote does not show enough to explain why the existing system needs replacement."
+        )
+        finalized.homeowner_takeaway = (
+            "The quote recommends a full replacement, but it doesn't show enough to explain "
+            "why the existing system needs to be replaced. The age and poor-cooling complaint "
+            "alone are not enough to confirm that replacement is the right next step."
+        )
+        replacement_total = _labeled_quote_amount(
+            quote_text,
+            ("total replacement price", "replacement total", "total installed price", "total price"),
+        )
+        amount_phrase = f"a {replacement_total} replacement" if replacement_total else "replacement"
+        finalized.bottom_line = (
+            f"Before approving {amount_phrase}, get another opinion or have the contractor "
+            "clearly explain what is wrong and why replacement is recommended instead of repair."
+        )
+        finalized.recommendation = (
+            "GET A SECOND OPINION — The quote does not show enough to explain why the existing "
+            "system needs replacement. Get another opinion or ask the contractor to clearly "
+            "document what is wrong and why replacement is preferred."
+        )
+
+    finalized_matching = primary_equipment_matching_assessment(finalized)
+    elective_with_incomplete_match = bool(
+        finalized.replacement_context == ReplacementContext.ELECTIVE
+        and finalized_replacement_basis
+        and finalized_replacement_basis.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"}
+        and finalized_replacement_basis.scope_support == "APPROPRIATE"
+        and finalized_matching
+        and finalized_matching.diagnostic_evidence_status == "INCOMPLETE"
+        and finalized_matching.scope_support == "PARTIALLY_DEFINED"
+    )
+    if elective_with_incomplete_match:
+        finalized.banner_explanation = (
+            "The planned replacement makes sense, but the exact equipment still needs to be identified."
+        )
+        finalized.homeowner_takeaway = (
+            "This is a planned homeowner-requested upgrade, so the lack of a failure diagnosis "
+            "is not a concern. Before approving the quote, ask for the exact equipment models "
+            "and matching information so the proposed combination can be verified."
+        )
+        finalized.bottom_line = (
+            "The replacement is a planned upgrade, but the quote should identify the exact "
+            "equipment and document the proposed match before you approve it."
+        )
+        finalized.recommendation = (
+            "REVIEW BEFORE APPROVING — The planned replacement itself makes sense, but the "
+            "exact equipment and matching documentation should be identified before approval."
+        )
+
+    if equipment_match_paperwork_contradiction(finalized) and not finalized_replacement_basis:
+        finalized.bottom_line = (
+            "The match paperwork doesn't line up with the equipment being quoted. Have "
+            "the contractor correct the equipment information and provide the matching "
+            "documentation before moving forward."
+        )
+        finalized.homeowner_takeaway = finalized.bottom_line
+        finalized.banner_explanation = (
+            "The submitted matching document lists different equipment than the quote."
+        )
+        finalized.recommendation = (
+            finalized.decision.verdict.replace("_", " ") + " — " + finalized.bottom_line
+        )
+
+    for field_name in (
+        "project_overview",
+        "equipment_analysis",
+        "missing_information",
+        "pricing_review",
+        "installation_concerns",
+        "quote_comparison",
+        "best_quote_recommendation",
+        "contractor_vetting",
+        "recommendation",
+        "banner_explanation",
+        "homeowner_takeaway",
+        "bottom_line",
+    ):
+        setattr(
+            finalized,
+            field_name,
+            plain_language_prioritization(getattr(finalized, field_name)),
+        )
+    finalized.red_flags = [
+        plain_language_prioritization(flag) for flag in finalized.red_flags
+    ]
+    finalized.good_signs = [
+        plain_language_prioritization(sign) for sign in finalized.good_signs
+    ]
+    finalized.contractor_questions = [
+        plain_language_prioritization(question)
+        for question in finalized.contractor_questions
+    ]
+    finalized.good_signs = list(dict.fromkeys(
+        "The proposal includes startup verification."
+        if _installation_scope_overclaim(sign)
+        and any(term in sign.lower() for term in ("startup", "verification", "commissioning"))
+        else sign
+        for sign in finalized.good_signs
+    ))
+    finalized.installation_concerns = _without_installation_scope_overclaims(
+        finalized.installation_concerns
+    ) or "Review the documented installation scope with the contractor before approval."
     return finalized
 
 
@@ -3921,18 +5749,7 @@ For replacement quotes, focus on:
 - good signs
 - final recommendation
 
-EQUIPMENT MATCH VERIFICATION:
-Do not describe proposed furnace, condenser, evaporator coil, heat pump, or air-handler combinations as a confirmed "good match," "matched system," "compatible system," or verified efficiency combination unless the proposal provides sufficient supporting evidence.
-
-If an AHRI reference number, matched-system certificate, or verified manufacturer combination is not provided:
-- state that the equipment is presented as a complete system
-- do not claim the combination is AHRI matched or that rated efficiency has been verified
-- recommend confirming the AHRI matched-system reference when applicable
-- distinguish apparent model compatibility from verified rated-system performance
-
 Do not add general product praise such as "well-regarded," "known for durability," "known for performance," or similar marketing-style statements unless specifically documented in the proposal.
-
-Base equipment comments on quoted model numbers, documented specifications, warranty information, and verified matching information only.
 
 Do not use manufacturer or brand reputation as a good sign, red flag, or basis for recommending a proposal. Statements such as "recognized in the industry," "reputable brand," "trusted manufacturer," "well-known brand," or similar brand commentary are not useful quote-analysis evidence unless directly relevant documentation is provided in the proposal.
 

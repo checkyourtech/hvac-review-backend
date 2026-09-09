@@ -1,0 +1,21 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+
+Equipment quoted for installation:
+- Outdoor heat pump: Northstar NHP36-B, R-454B, 208/230V single phase
+- Indoor air handler: Northstar NAH36-B, R-454B, 208/230V single phase
+- The proposal describes NHP36-B with NAH36-B as an AHRI-matched 16 SEER2 system.
+
+Match documentation submitted with the proposal:
+- Attached AHRI Certificate Reference 219876543 lists outdoor model NHP36-A.
+- The attached certificate lists indoor model NAH36-A.
+- The attached certificate does not list quoted model NHP36-B or quoted model NAH36-B.
+- No other manufacturer combination document for NHP36-B with NAH36-B is included.
+
+Scope:
+- Remove the existing system.
+- Install quoted models NHP36-B and NAH36-B.
+- Complete installation and startup under manufacturer instructions.
+
+Total installed price: $16,400.
+Parts and labor are included in one total.
+
