@@ -1,3 +1,4 @@
+from phase_regression_helpers import finalize_prior_module_analysis as finalize_customer_analysis
 import html
 import re
 import unittest
@@ -11,7 +12,6 @@ from main import (
     TechnicalEvidenceAssessment,
     apply_decision_policy,
     build_report_html as render_finalized_html,
-    finalize_customer_analysis,
 )
 
 
@@ -195,7 +195,7 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertIn("$16,800 total", finalized.pricing_review)
         self.assertIn("$10,200 for equipment", finalized.pricing_review)
         self.assertIn("$6,600 for labor and installation materials", finalized.pricing_review)
-        self.assertIn("meaningful high-level breakdown", finalized.pricing_review)
+        self.assertIn("see how the quote is divided", finalized.pricing_review)
         self.assertLessEqual(
             sum(
                 any(term in sign.lower() for term in ("ahri", "matched combination", "matched system"))

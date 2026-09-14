@@ -1,0 +1,25 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+Project: Sample Home D, 100 Example Lane. Whole conditioned home, single system.
+The homeowner requests a planned replacement of functioning equipment during renovation.
+No failure is claimed. Replace the complete existing HVAC system.
+
+Submitted equipment matching:
+The attached manufacturer combination sheet D-17 lists the exact proposed outdoor unit,
+indoor unit and metering device together as an approved combination. The attached AHRI
+reference D-17 identifies the same models and refrigerant. All equipment uses the documented
+208/230V single-phase supply. Matching is documented separately from building sizing.
+
+Proposed equipment: Example C36 outdoor AC with Example I36 coil and Example F60 furnace.
+Cooling capacity: 3 refrigeration tons. Furnace output: 60,000 Btu/h.
+No usable building-specific load results or explanation of the capacity selection is supplied.
+There is no submitted contradictory sizing information.
+
+Installation scope:
+Remove existing equipment and install the listed indoor and outdoor units. The proposal
+includes manufacturer-specified installation, permits, startup and verification of heating
+and cooling operation. Submitted duct review supports the specified equipment airflow.
+10-year parts warranty and 2-year labor warranty are included.
+
+Total installed price: $18,000.
+Equipment: $11,000.
+Labor and installation materials: $7,000.

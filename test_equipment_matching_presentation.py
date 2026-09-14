@@ -1,8 +1,9 @@
+from phase_regression_helpers import finalize_prior_module_analysis as finalize_customer_analysis
 """Offline presentation regressions for Phase 2B document contradictions."""
 import unittest
 from pathlib import Path
 
-from main import TechnicalEvidenceAssessment, build_report_html, finalize_customer_analysis
+from main import TechnicalEvidenceAssessment, build_report_html
 from test_structured_verdict import make_analysis
 
 

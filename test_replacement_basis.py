@@ -1,3 +1,4 @@
+from phase_regression_helpers import finalize_prior_module_analysis as finalize_customer_analysis
 import inspect
 import unittest
 from pathlib import Path
@@ -11,7 +12,6 @@ from main import (
     ReplacementContext,
     TechnicalEvidenceAssessment,
     derive_technical_support,
-    finalize_customer_analysis,
 )
 
 

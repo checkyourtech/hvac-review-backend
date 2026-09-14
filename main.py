@@ -17,6 +17,17 @@ from pathlib import Path
 import uuid
 from openai import OpenAI
 from pydantic import BaseModel, Field
+from pricing import (
+    MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
+    evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
+)
+from system_sizing import (
+    SIZING_SUBJECT, SYSTEM_SIZING_RULES, sizing_text, sizing_required,
+    normalize_capacity, exclusive_area_rule, usable_load_basis, sizing_backup_text,
+    submitted_sizing_excerpt, clear_submitted_sizing_support, sizing_review_paragraphs,
+    sizing_display_values,
+    comparable_heat_pump_plan,
+)
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 
@@ -109,6 +120,8 @@ class HVACAnalysis(BaseModel):
     contractor_questions: List[str] = Field(default_factory=list)
     recommendation: str
     decision: HVACDecision
+    price_facts: List[QuotePriceFacts] = Field(default_factory=list)
+    market_price_context: MarketPriceContext = Field(default_factory=MarketPriceContext)
     replacement_context: ReplacementContext = ReplacementContext.UNKNOWN
     technical_assessments: List[TechnicalEvidenceAssessment] = Field(
         default_factory=list
@@ -123,6 +136,7 @@ class AnalysisModule(str, Enum):
     REFRIGERANT_SYSTEM = "refrigerant_system"
     HEAT_EXCHANGER = "heat_exchanger"
     EQUIPMENT_MATCHING = "equipment_matching"
+    SYSTEM_SIZING = "system_sizing"
     ELECTRICAL_CONTROLS = "electrical_controls"
     MOTORS = "motors"
     FURNACE_COMBUSTION = "furnace_combustion"
@@ -167,6 +181,7 @@ class AnalyzeRequest(BaseModel):
     contractor_3_name: str = ""
     city: str = ""
     state: str = ""
+    project_zip: Optional[str] = None
     files: List[UploadedQuote]
 
 
@@ -307,6 +322,7 @@ Choose all relevant analysis modules from:
 - refrigerant_system
 - heat_exchanger
 - equipment_matching
+- system_sizing
 - electrical_controls
 - motors
 - furnace_combustion
@@ -348,6 +364,15 @@ Do not select equipment_matching for a routine capacitor, contactor, fan motor, 
 pressure-switch, flame-sensor, refrigerant-recharge, or drain repair unless the proposal
 also materially replaces or changes major system equipment. A repair-part model or an
 existing component mentioned during diagnosis does not by itself require system matching.
+
+Select system_sizing for complete HVAC replacement, furnace/AC/heat-pump/packaged-system
+replacement, mini-split or ductless installation, new HVAC installation, or major-unit work
+involving capacity selection. Also select it for a tonnage/capacity change, an HVAC addition
+or remodel affecting served space, explicit oversized/undersized claims, submitted Manual J
+or load calculations, stated sizing methods, or comfort work materially investigating capacity.
+Do not select it for capacitor, contactor, igniter, drain, control-board, flame-sensor,
+maintenance or isolated refrigerant repair merely because existing capacity is mentioned.
+Sizing, equipment matching and replacement basis remain independent assessments.
 
 Select duct_airflow when the proposal involves airflow, static pressure, blower airflow configuration, duct restrictions, supply or return restrictions, or ductwork evaluation.
 
@@ -444,7 +469,10 @@ Classify the following HVAC quote or quotes:
         response_format=QuoteClassification,
     )
 
-    return completion.choices[0].message.parsed
+    classification = completion.choices[0].message.parsed
+    if sizing_required(all_quotes_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
+    return classification
 
 LEGACY_ANALYSIS_KNOWLEDGE = {
     "compressor": """
@@ -2601,12 +2629,12 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
             ),
         ]
     ),
+    AnalysisModule.SYSTEM_SIZING: SYSTEM_SIZING_RULES,
     AnalysisModule.REPAIR_VS_REPLACE: REPAIR_VS_REPLACE_ANALYSIS_RULES,
     AnalysisModule.PRICING: UNIVERSAL_PRICING_RULES,
 }
 
 PHASE_2_MODULE_GAPS = (
-    "sizing",
     "lineset",
     "electrical_scope",
     "gas_scope",
@@ -2777,6 +2805,9 @@ def get_analysis_knowledge(
     classification: QuoteClassification,
     quote_text: str = "",
 ) -> str:
+    classification = classification.model_copy(deep=True)
+    if sizing_required(quote_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
     selected_modules = [
         SECTION_QUALITY_RULES.strip(),
         UNIVERSAL_WARRANTY_RULES.strip(),
@@ -3034,6 +3065,12 @@ def replacement_category_price_breakdown(
             )
         )
     )
+    has_explicit_sizing_equipment = bool(
+        sizing_assessments(analysis)
+        and re.search(r"proposed equipment:[^\n]+", normalized)
+        and sizing_display_values(quote_text)["cooling_capacity"]
+        and sizing_display_values(quote_text)["furnace_output"]
+    )
     has_installation_scope = "scope" in normalized and any(
         term in normalized
         for term in ("install", "replace", "remove")
@@ -3054,7 +3091,7 @@ def replacement_category_price_breakdown(
         total
         and equipment
         and installation
-        and (has_exact_identified_equipment or has_identified_equipment_type)
+        and (has_exact_identified_equipment or has_identified_equipment_type or has_explicit_sizing_equipment)
         and has_installation_scope
         and not material_ambiguity
     ):
@@ -3601,6 +3638,17 @@ def presupposes_mandatory_leak_search(question: str) -> bool:
 
 
 def refrigerant_context(analysis: HVACAnalysis, quote_text: str = "") -> bool:
+    if sizing_assessments(analysis):
+        # A newly partial sizing assessment must not turn a replacement's refrigerant
+        # specification into a low-charge diagnosis. Preserve actual repair concerns.
+        diagnostic_context = " ".join([quote_text, *[
+            " ".join([item.subject, *item.material_gaps, *item.contradictions])
+            for item in analysis.technical_assessments if not sizing_text(item.subject)
+        ]]).lower()
+        if not re.search(r"low (?:charge|refrigerant)|low on refrigerant|recharge|"
+                         r"add(?:ing)? [^.!?\n]{0,35}refrigerant|refrigerant (?:diagnosis|leak)",
+                         diagnostic_context):
+            return False
     combined = " ".join(
         [
             quote_text,
@@ -4198,6 +4246,11 @@ def _installation_scope_overclaim(value: str) -> bool:
             "essential to confirm operational performance",
         )
     )
+    execution_overclaim = (
+        "proper execution" in normalized
+        or "successful installation" in normalized
+        or ("installation" in normalized and "comprehensive" in normalized)
+    )
     comprehensive_guarantee = (
         "comprehensive" in normalized
         and "scope" in normalized
@@ -4211,7 +4264,7 @@ def _installation_scope_overclaim(value: str) -> bool:
         r"(?:functionality|correct operation|proper performance|successful installation)",
         normalized,
     ))
-    return absolute_steps or guaranteed_result or comprehensive_guarantee or assured_quality or functionality_guarantee
+    return absolute_steps or guaranteed_result or comprehensive_guarantee or assured_quality or functionality_guarantee or execution_overclaim
 
 
 def _without_installation_scope_overclaims(value: str) -> str:
@@ -4567,6 +4620,10 @@ def normalize_replacement_basis_customer_fields(
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if sizing_backup_text(question):
+        return "system_sizing_backup"
+    if sizing_text(question) or re.search(r"\bload calculations\b", normalized):
+        return "system_sizing"
     if replacement_basis_question(question):
         return "replacement_basis"
     if any(
@@ -4951,6 +5008,8 @@ def build_contractor_questions(
     priority = {
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
+        "system_sizing": 2,
+        "system_sizing_backup": 2,
         "replacement_basis": 2,
         "equipment_model": 3,
         "equipment_match_documentation": 4,
@@ -4974,10 +5033,471 @@ def build_contractor_questions(
     return questions[:6]
 
 
+def sizing_assessments(analysis: HVACAnalysis) -> List[TechnicalEvidenceAssessment]:
+    return [item for item in analysis.technical_assessments
+            if sizing_text(item.subject) and item.materiality != "MINOR"]
+
+
+def normalize_system_sizing_assessments(
+    analysis: HVACAnalysis, quote_text: str, classification=None,
+) -> None:
+    """Calibrate only the finalized copy; missing paperwork never proves wrong sizing."""
+    items = sizing_assessments(analysis)
+    if not items and sizing_required(quote_text, classification):
+        analysis.technical_assessments.append(TechnicalEvidenceAssessment(
+            subject=SIZING_SUBJECT, materiality="PRIMARY",
+            diagnostic_evidence_status="INCOMPLETE", scope_support="PARTIALLY_DEFINED",
+            documented_evidence=[], contradictions=[],
+            material_gaps=["The submitted information does not establish the capacity basis for the served space."],
+        ))
+        items = sizing_assessments(analysis)
+    single_source = len(items) == 1 and len(re.findall(r"(?m)^\s*QUOTE \d+", quote_text)) <= 1
+    source = submitted_sizing_excerpt(quote_text) if single_source else ""
+    for item in items:
+        # Do not relabel actual project/selection conflicts as mere missing paperwork.
+        conflicts = [value for value in item.contradictions if not (
+            exclusive_area_rule(value)
+            and not re.search(r"(?:document|engineer|summary).*(?:conflict|different|specif)", value.lower())
+        ) and not re.search(
+            r"\bno (?:actual |submitted )?(?:contradict\w*|conflict\w*)", value.lower()
+        ) and not (
+            re.search(r"\b(?:missing|absent|not (?:provided|supplied|attached)|no (?:manual j|load calculation|sizing))\b", value.lower())
+            and not re.search(r"\b(?:different|conflict|contradict|another|wrong project)\w*\b", value.lower())
+        )]
+        method_text = " ".join([*item.documented_evidence, *item.contradictions])
+        # Quote-wide method inference is safe only for a single sizing assessment/quote.
+        if len(items) == 1 and len(re.findall(r"(?m)^\s*QUOTE \d+", quote_text)) <= 1:
+            method_text += " " + quote_text
+        rule_only = exclusive_area_rule(method_text)
+        ordinary_gaps = all(re.search(
+            r"(?:capacity basis|capacity was selected|sizing basis|sizing information|load (?:summary|calculation|results))",
+            gap, re.I) for gap in item.material_gaps)
+        recovered_support = bool(source and clear_submitted_sizing_support(source)
+                                 and ordinary_gaps and not conflicts and not rule_only)
+        supported = (item.diagnostic_evidence_status in {"ADEQUATE", "CONFIRMED"}
+                     and item.scope_support == "APPROPRIATE"
+                     and not item.material_gaps
+                     and usable_load_basis(item.documented_evidence))
+        if conflicts:
+            status, scope = "CONTRADICTORY", "UNSUPPORTED"
+        elif rule_only:
+            status, scope = "INCOMPLETE", "UNSUPPORTED"
+        elif recovered_support:
+            status, scope = (item.diagnostic_evidence_status if supported else "ADEQUATE"), "APPROPRIATE"
+        elif supported:
+            status, scope = item.diagnostic_evidence_status, "APPROPRIATE"
+        else:
+            status, scope = "INCOMPLETE", "PARTIALLY_DEFINED"
+        update = dict(diagnostic_evidence_status=status, scope_support=scope,
+                      materiality="PRIMARY", contradictions=conflicts)
+        if source:
+            previous = [value for value in item.documented_evidence
+                        if not value.startswith("Submitted sizing source:\n")]
+            update["documented_evidence"] = [*previous, "Submitted sizing source:\n" + source]
+        if recovered_support:
+            update["material_gaps"] = []
+        if not supported and not recovered_support and not conflicts and not item.material_gaps:
+            update["material_gaps"] = ["The submitted information does not explain how the capacity was selected for this space."]
+        # Keep distinct project/zone subject suffixes; normalize semantic single-system aliases.
+        if len(items) == 1:
+            update["subject"] = SIZING_SUBJECT
+        replacement = item.model_copy(update=update)
+        analysis.technical_assessments = [replacement if candidate is item else candidate
+                                          for candidate in analysis.technical_assessments]
+
+
+def system_sizing_customer_finding(analysis: HVACAnalysis, quote_text: str):
+    items = sizing_assessments(analysis)
+    conflicts = [item for item in items if item.diagnostic_evidence_status == "CONTRADICTORY"]
+    unsupported_method = any(item.scope_support == "UNSUPPORTED" for item in items)
+    partial = any(item.diagnostic_evidence_status == "INCOMPLETE" for item in items)
+    text = quote_text.lower()
+    if conflicts and any(re.search(r"(?:different|another|wrong) (?:home|house|project|property)", value.lower())
+                         for item in conflicts for value in item.contradictions):
+        return ("The submitted sizing documents refer to a different home or project, so they "
+                "do not support this selection. Ask for sizing information for this home.",
+                "Can you provide the sizing documents for this home and explain how they support the selection?")
+    if conflicts:
+        values = sizing_display_values(quote_text)
+        selection, proposal = values['selection_capacity'], values['cooling_capacity']
+        if selection and proposal:
+            return ("The cooling selection changed without an explanation.",
+                    f"Why did the cooling size change from the load-based {selection['label']} selection to the quoted "
+                    f"{proposal['label']} system, and can you show the updated sizing results supporting that change?")
+        return ("The sizing numbers don't line up with the quote.",
+                "Can you explain the difference between the sizing results and the quoted system size, or correct it before approval?")
+    if unsupported_method:
+        return ("The final system size is based only on a square-footage rule. That does not "
+                "show what capacity this home needs. Ask for a building-specific sizing basis before moving forward.",
+                "Can you provide a building-specific load review to support the proposed system size?")
+    if partial:
+        if any(term in text for term in ("addition", "remodel", "changed space", "added space")):
+            return ("The quote does not show whether the system size accounts for the added or changed space. "
+                    "Have the contractor clarify that before approval.",
+                    "Does the sizing review include the added or changed space?")
+        if "manual j" in text or "load calculation" in text:
+            return ("The quote refers to a load calculation, but the submitted information does not yet "
+                    "show enough to verify the proposed size.",
+                    "Can you provide the load summary and explain how it supports this system size?")
+        if any(term in text for term in ("same size", "same capacity", "same nominal", "like-for-like")):
+            return ("Keeping the same size may be reasonable, but the quote does not show a building-specific "
+                    "basis for that choice.", "What supports keeping the same size for this home?")
+        values = sizing_display_values(quote_text)
+        capacities = []
+        if values["cooling_capacity"]:
+            capacities.append(f"{values['cooling_capacity']['label']} cooling system")
+        if values["furnace_output"]:
+            capacities.append(f"{values['furnace_output']['label']} furnace output")
+        question = (
+            "Can you show me the load calculation or explain how you determined the "
+            + " and ".join(capacities) + " for this home?"
+            if capacities else "How did you determine the size of the new system?"
+        )
+        return ("The quote tells you the size they're proposing, but not what heating and cooling "
+                "load they calculated for the home. Without that, the size can't be fully verified.", question)
+    return "The load numbers support the proposed system size.", ""
+
+
+def normalize_remodel_sizing_presentation(analysis: HVACAnalysis, quote_text: str) -> None:
+    """Keep changed-space follow-up focused and scope/coverage credit factual."""
+    items = sizing_assessments(analysis)
+    if not sizing_display_values(quote_text)['changed_space'] or not any(
+        item.diagnostic_evidence_status == "INCOMPLETE"
+        and item.scope_support == "PARTIALLY_DEFINED" for item in items
+    ):
+        return
+
+    analysis.contractor_questions = [
+        q for q in analysis.contractor_questions
+        if not (
+            re.search(r"\b(?:sizing|system|tons?|capacity)\b", q, re.I)
+            and re.search(r"added|changed|changes|remodel|addition|renovat", q, re.I)
+            and not re.search(r"duct|wiring|breaker|drain|warranty", q, re.I)
+        )
+    ]
+    # Read affirmative scope from the submitted proposal, including wrapped lines.
+    affirmative = " ".join(
+        sentence for sentence in re.split(r"(?<=[.!?])\s+", quote_text)
+        if not re.search(r"\b(?:no|not|excluded|pending)\b", sentence, re.I)
+    )
+    scope = []
+    for pattern, label in (
+        (r"remov\w*\s+(?:the\s+)?existing equipment", "removal of the existing equipment"),
+        (r"install\w*\s+(?:the\s+)?(?:new|listed|proposed)\b", "installation of the listed equipment"),
+        (r"\bpermits?\b", "permits"),
+        (r"\bstartup\b", "startup verification"),
+    ):
+        if re.search(pattern, affirmative, re.I):
+            scope.append(label)
+    sentences = re.split(r"(?<=[.!?])\s+", analysis.installation_concerns)
+    retained = [sentence for sentence in sentences if not re.search(
+        r"scope (?:appears|is|seems) (?:fully )?adequate|quality installation|"
+        r"installation quality|code compliance|quality.*compliance|proper execution|"
+        r"professional scope|comprehensive proposal", sentence, re.I,
+    )]
+    if retained != sentences:
+        factual_scope = "The proposal includes " + ", ".join(scope) + "." if scope else ""
+        analysis.installation_concerns = " ".join([*retained, factual_scope]).strip()
+
+    signs = []
+    for sign in analysis.good_signs:
+        if "warranty" in sign.lower() and re.search(
+            r"reliab|lifespan|installation quality|service quality", sign, re.I,
+        ):
+            terms = re.findall(
+                r"\b\d+[- ]year\s+(?:parts|labor)\s+warranty\b", affirmative, re.I,
+            )
+            if terms:
+                signs.append("The proposal lists " + " and ".join(terms) + ".")
+        elif not re.search(r"quality installation|professional scope|comprehensive proposal", sign, re.I):
+            signs.append(sign)
+    matching = primary_equipment_matching_assessment(analysis)
+    if (matching and matching.diagnostic_evidence_status in {"ADEQUATE", "CONFIRMED"}
+            and matching.scope_support == "APPROPRIATE" and not matching.contradictions
+            and matching.documented_evidence):
+        signs.insert(0,
+            "The submitted documentation shows the indoor and outdoor equipment are an approved matched combination.")
+    analysis.good_signs = list(dict.fromkeys(signs))
+
+
+def normalize_system_sizing_customer_fields(analysis: HVACAnalysis, quote_text: str) -> None:
+    """Compose sizing after domain-specific synthesis without erasing other concerns."""
+    items = sizing_assessments(analysis)
+    if not items:
+        return
+    normalize_remodel_sizing_presentation(analysis, quote_text)
+    sizing_conflict = any(
+        item.diagnostic_evidence_status == "CONTRADICTORY" for item in items
+    )
+    summary, question = system_sizing_customer_finding(analysis, quote_text)
+    for field in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns"):
+        sentences = re.split(r"(?<=[.!?])\s+", getattr(analysis, field))
+        setattr(analysis, field, " ".join(sentence for sentence in sentences if not sizing_text(sentence)
+            and not re.search(r"furnace (?:heating )?output|cooling output|operational viability|capacity methodology|material sizing deficiency|capacity verification|alternate design rationale", sentence, re.I)))
+    if not analysis.project_overview.strip():
+        analysis.project_overview = "The proposal includes HVAC equipment work."
+    independent_model_gap = any(
+        re.search(r"\b(?:model|capacity|capacities)\b", gap.lower())
+        for item in analysis.technical_assessments if item not in items
+        for gap in [*item.material_gaps, *item.contradictions]
+    )
+    if not independent_model_gap:
+        analysis.missing_information = " ".join(
+            sentence for sentence in re.split(r"(?<=[.!?])\s+", analysis.missing_information)
+            if not (re.search(r"always beneficial|double[- ]check", sentence.lower())
+                    and re.search(r"model|capacit", sentence.lower()))
+        )
+    cleaned_installation = _without_installation_scope_overclaims(analysis.installation_concerns)
+    cleaned_installation = " ".join(
+        sentence for sentence in re.split(r"(?<=[.!?])\s+", cleaned_installation)
+        if not re.search(r"no major concerns.*adequacy.*installation|\b(?:ensures|guarantees)\b.*(?:execution|operation|performance|comfort|efficiency)", sentence, re.I)
+    )
+    if cleaned_installation != analysis.installation_concerns:
+        scope = []
+        affirmative = " ".join(
+            sentence for sentence in re.split(r"\n|(?<=[.!?])\s+", quote_text.lower())
+            if not re.search(r"\b(?:no|not|excluded|pending)\b", sentence)
+        )
+        if re.search(r"remov\w*.*existing", affirmative):
+            scope.append("removal of the existing equipment")
+        if re.search(r"install\w*.*(?:new|listed|proposed)", affirmative):
+            scope.append("installation of the listed equipment")
+        if re.search(r"\bpermits?\b", affirmative):
+            scope.append("permits")
+        if "startup" in affirmative:
+            scope.append("startup verification")
+        factual_scope = "The proposal includes " + ", ".join(scope) + "." if scope else ""
+        analysis.installation_concerns = (cleaned_installation + " " + factual_scope).strip()
+    # The dedicated sizing section carries the detailed comparison. Keep this field
+    # focused on replacement rationale and component matching.
+    analysis.equipment_analysis = analysis.equipment_analysis.strip()
+    analysis.red_flags = [flag for flag in analysis.red_flags if not sizing_text(flag)]
+    if any(item.diagnostic_evidence_status == "CONTRADICTORY" for item in items):
+        analysis.red_flags.append("The sizing numbers don't line up with the quoted system size.")
+    elif any(item.scope_support == "UNSUPPORTED" for item in items):
+        analysis.red_flags.append("The final system size is based only on an arbitrary square-footage rule.")
+    cleaned_good_signs = []
+    for sign in analysis.good_signs:
+        if sizing_text(sign) or re.search(
+            r"load calculations?|performance compatibility|"
+            r"\b(?:ensures|guarantees)\b.*(?:performance|compatibility|comfort|efficiency|operation)",
+            sign,
+            re.I,
+        ):
+            continue
+        normalized_sign = " ".join(str(sign or "").lower().split())
+        if sizing_conflict and any(
+            term in normalized_sign
+            for term in ("matched equipment", "approved matched", "matched combination")
+        ):
+            cleaned_good_signs.append(
+                "The submitted documentation shows that the indoor and outdoor equipment "
+                "are an approved matched combination."
+            )
+            continue
+        if sizing_conflict and any(
+            term in normalized_sign
+            for term in (
+                "necessary installation steps",
+                "manufacturer installation",
+                "startup verification",
+                "permits",
+            )
+        ):
+            continue
+        cleaned_good_signs.append(sign)
+    analysis.good_signs = list(dict.fromkeys(cleaned_good_signs))
+    if not question:
+        analysis.good_signs.insert(0, "The quote ties the proposed system size to building-specific load results.")
+        analysis.missing_information = " ".join(
+            sentence for sentence in re.split(r"(?<=[.!?])\s+", analysis.missing_information)
+            if not re.search(r"all necessary details|adequately provided|\bno (?:important|significant|critical) (?:missing information|information.*missing)", sentence, re.I)
+        )
+    else:
+        # Remove generic 'nothing missing' boilerplate when there is a material sizing gap.
+        analysis.missing_information = " ".join(
+            sentence for sentence in re.split(r"(?<=[.!?])\s+", analysis.missing_information)
+            if not re.search(r"\bno (?:other )?(?:significant |important |material |critical )?(?:missing information|information.*missing)|\bno (?:other )?(?:important|material|critical)|\bnothing\b.*\bmissing|\ball necessary (?:equipment|performance)", sentence.lower())
+        )
+        values = sizing_display_values(quote_text)
+        if sizing_conflict:
+            retained_missing = [
+                sentence
+                for sentence in re.split(r"(?<=[.!?])\s+", analysis.missing_information)
+                if sentence
+                and not re.search(
+                    r"rationale behind|essential for understanding|capacity verification|"
+                    r"\breconcile\b|\bmethodology\b|(?:replacement equipment|system) size",
+                    sentence,
+                    re.I,
+                )
+            ]
+            selection = values['selection_capacity']
+            proposal = values['cooling_capacity']
+            if selection and proposal:
+                missing_action = (
+                    f"The quote doesn't explain why the contractor changed from the submitted "
+                    f"{selection['label']} sizing selection to a {proposal['label']} system. "
+                    "Have the contractor explain the change or provide updated sizing results "
+                    "supporting the larger system."
+                )
+            else:
+                missing_action = (
+                    "The quote doesn't explain why the quoted system differs from the submitted "
+                    "sizing results. Have the contractor explain the change or provide updated "
+                    "sizing results supporting it."
+                )
+            analysis.missing_information = " ".join(
+                [*retained_missing, missing_action]
+            ).strip()
+        elif values['changed_space']:
+            missing_action = "The sizing information does not show whether the added or remodeled space was included."
+        elif not values['cooling_load'] and not values['heating_load']:
+            missing_action = "The quote does not include the home's calculated heating and cooling loads."
+        else:
+            missing_action = "The quote needs the missing load or equipment output results that explain the system size."
+        if not sizing_conflict:
+            analysis.missing_information = (analysis.missing_information + " " + missing_action).strip()
+    if not analysis.missing_information.strip():
+        analysis.missing_information = "No important sizing information is missing from the submitted proposal."
+    backup_gap = any(sizing_backup_text(gap) for item in items for gap in item.material_gaps)
+    backup_questions = [q for q in analysis.contractor_questions if sizing_backup_text(q)]
+    independent_verification_gap = any(
+        contractor_question_category(gap) == "verification"
+        or bool(re.search(r"\b(?:startup|commissioning)\b", gap, re.I))
+        for item in analysis.technical_assessments
+        if item not in items and item.materiality in {"PRIMARY", "MATERIAL_SECONDARY"}
+        and (item.diagnostic_evidence_status in {"INCOMPLETE", "ABSENT", "CONTRADICTORY"}
+             or item.scope_support in {"PARTIALLY_DEFINED", "UNSUPPORTED"})
+        for gap in [item.subject, *item.material_gaps, *item.contradictions]
+    )
+    analysis.contractor_questions = [q for q in analysis.contractor_questions
+        if contractor_question_category(q) not in {"system_sizing", "system_sizing_backup"}
+        and not (
+            sizing_conflict
+            and re.search(
+                r"\b(?:larger|oversiz|system size|cooling size|cooling capacity|\d+(?:\.\d+)? tons?)\b",
+                q,
+                re.I,
+            )
+            and re.search(
+                r"\b(?:change|changed|energy efficiency|comfort|humidity|short cycl|performance)\b",
+                q,
+                re.I,
+            )
+        )
+        and not (not independent_verification_gap
+                 and re.search(r"\b(?:startup|commissioning)\b", q, re.I))]
+    if question:
+        analysis.contractor_questions.insert(0, question)
+        if backup_gap:
+            analysis.contractor_questions.insert(1, backup_questions[0] if backup_questions else
+                "How will the heat pump and backup heat cover the home's heating load?")
+    analysis.decision.required_actions = [action for action in analysis.decision.required_actions
+                                          if not sizing_text(action)]
+    if question:
+        analysis.decision.required_actions.append("Clarify the proposed system size using the building-specific sizing information before approval.")
+
+
+def compose_system_sizing_summary(analysis: HVACAnalysis, quote_text: str) -> None:
+    items = sizing_assessments(analysis)
+    if not items:
+        return
+    summary, question = system_sizing_customer_finding(analysis, quote_text)
+    other_unresolved = any(
+        item not in items and item.materiality != "MINOR"
+        and (item.diagnostic_evidence_status in {"INCOMPLETE", "ABSENT", "CONTRADICTORY"}
+             or item.scope_support in {"PARTIALLY_DEFINED", "UNSUPPORTED"})
+        for item in analysis.technical_assessments)
+    if question:
+        conflict = any(i.diagnostic_evidence_status == "CONTRADICTORY" for i in items)
+        changed_space = sizing_display_values(quote_text)['changed_space']
+        bottom = ("I would not approve the quoted cooling-capacity change until the contractor explains it or provides updated sizing results."
+                  if conflict else "Make sure the sizing reflects the remodeled space before approving the system."
+                  if changed_space else "The quote shows what size system they're selling you, but not how they arrived at it. Get the sizing results before approving the equipment.")
+        takeaway = ("The cooling selection needs an explanation before approval."
+                    if conflict and sizing_display_values(quote_text)['selection_capacity']
+                    else "The system size needs a closer look before approval.")
+        banner = ("The sizing numbers don't line up with the quote." if conflict
+                  else "The system size still needs clarification before approval.")
+        for field, value in (("bottom_line", bottom), ("homeowner_takeaway", takeaway), ("banner_explanation", banner)):
+            current = getattr(analysis, field)
+            setattr(analysis, field, (current + " " + value) if other_unresolved else value)
+    elif not other_unresolved:
+        values = sizing_display_values(quote_text)
+        supported_parts = []
+        if values['cooling_capacity']:
+            supported_parts.append(
+                f"proposed {values['cooling_capacity']['label']} cooling system"
+            )
+        if values['furnace_output']:
+            supported_parts.append(
+                f"{values['furnace_output']['label']} furnace output"
+            )
+        elif values['heat_pump_output'] and values['backup_output']:
+            supported_parts.append(
+                f"{values['heat_pump_output']['label']} heat-pump output with "
+                f"{values['backup_output']['label']} of backup heat"
+            )
+        analysis.homeowner_takeaway = "The load results support the system size; the sizing section explains why."
+        supported_selection = (
+            " and ".join(supported_parts)
+            if supported_parts
+            else "proposed system size"
+        )
+        analysis.bottom_line = (
+            f"The home's load results support the {supported_selection}. Nothing about "
+            "the submitted sizing needs to be cleared up before approval."
+        )
+        if comparable_heat_pump_plan(quote_text):
+            analysis.bottom_line = (
+                f"The submitted sizing supports the {values['cooling_capacity']['label']} cooling system. "
+                "On the heating side, the heat pump and documented backup heat together cover "
+                "the submitted design load, so nothing about the sizing needs to be cleared up before approval."
+            )
+    if comparable_heat_pump_plan(quote_text):
+        # Including a duct review is a scope fact, not a duct adequacy assessment.
+        analysis.installation_concerns = " ".join(
+            "The proposal includes a duct review."
+            if re.search(r"duct", sentence, re.I)
+            and re.search(r"ensur|essential|guarantee|perform adequately", sentence, re.I)
+            and re.search(r"submitted duct review|includes? a duct review", quote_text, re.I)
+            else sentence
+            for sentence in re.split(r"(?<=[.!?])\s+", analysis.installation_concerns)
+        )
+        analysis.pricing_review = re.sub(
+            r"[^.!?]*(?:pricing seems transparent|useful overview|adequate for homeowner understanding)[^.!?]*[.!?]?",
+            "", analysis.pricing_review, flags=re.I,
+        ).strip()
+    analysis.recommendation = analysis.decision.verdict.replace("_", " ") + " — " + analysis.bottom_line
+    # Narrow wording cleanup for sizing-bearing reports, without changing decisions.
+    for field in ("pricing_review", "installation_concerns"):
+        value = getattr(analysis, field)
+        value = re.sub(r",?\s*(?:providing reassurance|clearly illustrating the major cost components|which is reassuring)[^.]*", "", value, flags=re.I)
+        setattr(analysis, field, value)
+    analysis.good_signs = [re.sub(r",?\s*providing reassurance[^.]*", "", value, flags=re.I)
+                           for value in analysis.good_signs]
+    # Drop only standalone filler, preserving concrete warranty, permit, startup,
+    # matching and other independently useful positives.
+    analysis.good_signs = [value for value in analysis.good_signs if not re.fullmatch(
+        r"(?:the )?(?:proposal (?:has |is )?)?(?:detailed installation|professional-looking proposal|"
+        r"manufacturer guidelines followed|clear scope|paperwork is thorough)\.?", value.strip(), re.I)]
+
+
+def system_sizing_report_paragraphs(analysis: HVACAnalysis) -> List[str]:
+    paragraphs = []
+    for item in sizing_assessments(analysis):
+        sources = [value for value in item.documented_evidence if value.startswith("Submitted sizing source:\n")]
+        evidence = sources or [*item.documented_evidence, *item.material_gaps, *item.contradictions]
+        paragraphs.extend(sizing_review_paragraphs(evidence, item.diagnostic_evidence_status, item.scope_support))
+    return paragraphs
+
+
 def finalize_customer_analysis(
     analysis: HVACAnalysis,
     quote_text: str = "",
     quote_count: Optional[int] = None,
+    classification: Optional[QuoteClassification] = None,
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
@@ -4985,6 +5505,8 @@ def finalize_customer_analysis(
     calibrate_partial_replacement_basis(finalized, quote_text)
     ensure_elective_replacement_basis_assessment(finalized, quote_text)
     calibrate_elective_incomplete_equipment_match(finalized, quote_text)
+
+    normalize_system_sizing_assessments(finalized, quote_text, classification)
 
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
@@ -5026,6 +5548,7 @@ def finalize_customer_analysis(
             "No significant installation or repair-scope concerns were identified in "
             "the submitted proposal."
         )
+    normalize_system_sizing_customer_fields(finalized, quote_text)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
     ensure_pricing_required_action(finalized.decision)
@@ -5131,6 +5654,8 @@ def finalize_customer_analysis(
             finalized.decision.verdict.replace("_", " ") + " — " + finalized.bottom_line
         )
 
+    compose_system_sizing_summary(finalized, quote_text)
+
     for field_name in (
         "project_overview",
         "equipment_analysis",
@@ -5170,6 +5695,18 @@ def finalize_customer_analysis(
     finalized.installation_concerns = _without_installation_scope_overclaims(
         finalized.installation_concerns
     ) or "Review the documented installation scope with the contractor before approval."
+    # Only the application can supply benchmark context. Never trust a model range.
+    finalized.price_facts = extract_quote_price_facts(quote_text)
+    finalized.market_price_context = evaluate_market_price(finalized.price_facts)
+    for name in (
+        "pricing_review", "project_overview", "equipment_analysis", "missing_information",
+        "installation_concerns", "recommendation", "banner_explanation",
+        "homeowner_takeaway", "bottom_line", "quote_comparison", "best_quote_recommendation",
+    ):
+        setattr(finalized, name, customer_pricing_text(getattr(finalized, name)))
+    for name in ("good_signs", "red_flags", "contractor_questions"):
+        setattr(finalized, name, [cleaned for value in getattr(finalized, name)
+                                if (cleaned := customer_pricing_text(value))])
     return finalized
 
 
@@ -5261,6 +5798,12 @@ def build_report_html(analysis, quote_count=None):
         best_quote = ""
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
+    sizing_paragraphs = system_sizing_report_paragraphs(analysis)
+    sizing_section = (
+        '<div class="card"><h2>Is the New System the Right Size?</h2>'
+        + ''.join(f'<p>{esc(paragraph)}</p>' for paragraph in sizing_paragraphs)
+        + '</div>'
+    ) if sizing_paragraphs else ""
     project_overview = clean(analysis.project_overview)
 
     plain_english = clean(analysis.homeowner_takeaway)
@@ -5534,6 +6077,7 @@ ul {{
     </div>
 
     {section("Does the Diagnosis Make Sense?", equipment_analysis)}
+    {sizing_section}
 
     {section(
         "Important Missing Information",
@@ -5828,6 +6372,8 @@ SELECTED TECHNICAL ANALYSIS KNOWLEDGE:
 
 {analysis_knowledge if analysis_knowledge else "No additional module-specific knowledge was selected."}
 
+{PRICING_MARKET_RULES}
+
 Use the selected technical knowledge only when it applies to the submitted quote.
 The quote itself remains the source of truth.
 Do not invent measurements, diagnoses, model numbers, scope, warranties, or other facts that are not actually documented.s
@@ -5861,6 +6407,11 @@ Submitted HVAC Quote(s):
         raw_analysis,
         quote_text=all_quotes_text,
         quote_count=len(request.files),
+        classification=classification,
+    )
+    analysis.market_price_context = evaluate_market_price(
+        analysis.price_facts, project_zip=request.project_zip,
+        market_area=", ".join(part for part in (request.city, request.state) if part) or None,
     )
 
     send_review_email(

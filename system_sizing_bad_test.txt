@@ -1,0 +1,33 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+Project: Sample Home D, 100 Example Lane. Whole conditioned home, single system.
+The homeowner requests a planned replacement of functioning equipment during renovation.
+No failure is claimed. Replace the complete existing HVAC system.
+
+Submitted equipment matching:
+The attached manufacturer combination sheet D-17 lists the exact proposed outdoor unit,
+indoor unit and metering device together as an approved combination. The attached AHRI
+reference D-17 identifies the same models and refrigerant. All equipment uses the documented
+208/230V single-phase supply. Matching is documented separately from building sizing.
+
+Proposed equipment: Example C60 single-stage outdoor AC with Example I60 coil and Example F60 furnace.
+Quoted cooling capacity: 5 refrigeration tons. Furnace output: 60,000 Btu/h.
+Submitted engineering load-selection summary D-17 for Sample Home D, whole home:
+Cooling load: 34,000 Btu/h; heating load: 58,000 Btu/h.
+Design conditions: 95 F cooling/20 F heating outdoors, 75 F cooling/70 F heating indoors.
+The engineer's final selection specifies C36/I36, 3 refrigeration tons nominal, providing
+35,000 Btu/h cooling at those conditions, with F60 providing 60,000 Btu/h heating output.
+The summary expressly specifies C36/I36 rather than C60/I60 for this project.
+The quote claims it follows this submitted selection but proposes C60/I60, 5 tons instead.
+Both references apply to the same whole-home cooling selection and design conditions.
+No alternate design or explanation for departing from that selection is provided.
+The submitted matching sheet covers C60/I60/F60, so pairing itself is not the contradiction.
+
+Installation scope:
+Remove existing equipment and install the listed indoor and outdoor units. The proposal
+includes manufacturer-specified installation, permits, startup and verification of heating
+and cooling operation. Submitted duct review supports the specified equipment airflow.
+10-year parts warranty and 2-year labor warranty are included.
+
+Total installed price: $18,000.
+Equipment: $11,000.
+Labor and installation materials: $7,000.
