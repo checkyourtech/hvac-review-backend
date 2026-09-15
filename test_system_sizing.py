@@ -57,7 +57,21 @@ def fixture(name):
     return Path(f"system_sizing_{name}_test.txt").read_text()
 
 
-class SizingRoutingTests(unittest.TestCase):
+class SizingOnlyTests(unittest.TestCase):
+    """Keep accepted Phase 2D scenarios independent of new duct completeness.
+
+    These fixtures only assert generic duct review, not Phase 2E evidence. Actual
+    unmocked duct completeness and upload integration live in test_duct_airflow.
+    No production bypass is introduced; supplied duct assessments still normalize.
+    """
+    def setUp(self):
+        super().setUp()
+        patcher = patch("duct_airflow.duct_required", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class SizingRoutingTests(SizingOnlyTests):
     def test_registry_and_gap(self):
         self.assertEqual(main.AnalysisModule.SYSTEM_SIZING.value, "system_sizing")
         self.assertEqual(set(main.ANALYSIS_MODULES), set(main.AnalysisModule))
@@ -117,7 +131,7 @@ class SizingRoutingTests(unittest.TestCase):
                 self.assertFalse(sizing_required(Path(name).read_text()))
 
 
-class SizingCalibrationTests(unittest.TestCase):
+class SizingCalibrationTests(SizingOnlyTests):
     def finalize(self, item, quote=""):
         return main.finalize_customer_analysis(analysis(*domain_items(), item), quote_text=quote)
 
@@ -241,7 +255,7 @@ class SizingCalibrationTests(unittest.TestCase):
         self.assertEqual(node(original), node(Path("main.py").read_text()))
 
 
-class CapacityNormalizationTests(unittest.TestCase):
+class CapacityNormalizationTests(SizingOnlyTests):
     def test_tons_and_rate_units(self):
         for value, unit, context, expected in ((3.5, "tons", False, 42000),
                                               (36, "kBtu/h", False, 36000),
@@ -287,7 +301,7 @@ class CapacityNormalizationTests(unittest.TestCase):
         self.assertEqual(final.red_flags, [])
 
 
-class SizingPresentationTests(unittest.TestCase):
+class SizingPresentationTests(SizingOnlyTests):
     def partial_raw(self):
         raw = analysis(*domain_items(), sizing("INCOMPLETE", "PARTIALLY_DEFINED", evidence=[]),
                        pricing="LIMITED")
@@ -440,7 +454,7 @@ class SizingPresentationTests(unittest.TestCase):
             self.assertIn(phrase.lower(), SYSTEM_SIZING_RULES.lower())
 
 
-class SizingBoundaryRegressions(unittest.TestCase):
+class SizingBoundaryRegressions(SizingOnlyTests):
     def test_capacity_changes_and_investigation_route(self):
         for text in ("Capacity change: 3 tons to 4 tons", "Increase system capacity to 4 tons",
                      "Investigate HVAC capacity for the addition", "HVAC capacity selection for the remodel"):
@@ -542,7 +556,7 @@ class SizingBoundaryRegressions(unittest.TestCase):
             self.assertEqual(ast.dump(before), ast.dump(after), name)
 
 
-class SizingGoodAcceptanceRegressionTests(unittest.TestCase):
+class SizingGoodAcceptanceRegressionTests(SizingOnlyTests):
     # The captured live artifact contains final HTML, not the raw AI assessment.
     # This is a controlled reconstruction using the GOOD fixture's facts, not an
     # assertion that these were the exact raw strings from that live request.
@@ -692,7 +706,7 @@ class SizingGoodAcceptanceRegressionTests(unittest.TestCase):
         self.assertEqual(result.text, main.build_report_html(final, quote_count=1))
 
 
-class SizingVisibleSectionTests(unittest.TestCase):
+class SizingVisibleSectionTests(SizingOnlyTests):
     def test_supported_wording_is_factual_and_sizing_specific(self):
         raw = analysis(*domain_items())
         raw.missing_information = "All necessary details regarding equipment matching, capacity, and installation scope appear to be adequately provided."

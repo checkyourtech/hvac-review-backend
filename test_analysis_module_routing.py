@@ -359,8 +359,8 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
             classification.modules_required,
             [AnalysisModule.DUCT_AIRFLOW],
         )
-        self.assertIn("AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW", knowledge)
-        self.assertIn("DUCTWORK", knowledge)
+        self.assertIn("DUCT AND AIRFLOW SUPPORT FOR PROPOSED EQUIPMENT", knowledge)
+        self.assertIn("delivered CFM", knowledge)
 
     def test_cross_cutting_modules_resolve_independently(self):
         warranty = get_analysis_knowledge(

@@ -1,0 +1,30 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+Project: Sample Home E, whole conditioned home, single system.
+Capacity increase: existing system 3 tons; proposed system 4 tons, with existing ducts reused.
+The existing system is currently operating. No equipment failure is claimed.
+The homeowner requested a proactive replacement during a planned remodel.
+This is a voluntary planned upgrade, not a necessary repair or failure-driven replacement.
+Replace the complete ducted HVAC system using existing supply and return ducts.
+Proposed equipment: Example EX-C48 outdoor AC, Example EX-I48 indoor coil, and Example EX-F60 furnace.
+Condenser: Example EX-C48, 208/230V single-phase, R-454B.
+Coil: Example EX-I48, R-454B, with the factory-specified TXV listed on sheet E-17.
+Furnace: Example EX-F60, with the blower configuration listed on sheet E-17.
+Submitted manufacturer approved combination sheet E-17 lists EX-C48, EX-I48 and EX-F60 together as an approved matched combination with the specified metering device.
+
+Submitted building-specific load/selection summary E-17 for Sample Home E, whole conditioned home:
+Cooling load: 46,000 Btu/h. Heating load: 58,000 Btu/h.
+Design conditions: 95 F cooling and 20 F heating outdoors, 75 F and 70 F indoors.
+Cooling capacity: 4 tons nominal. Submitted manufacturer cooling output: 47,000 Btu/h at those conditions.
+Furnace output: 60,000 Btu/h.
+The project-specific selection summary ties these outputs to the listed loads and supports the proposed equipment selection for Sample Home E.
+
+Installation scope:
+Remove existing equipment, install the listed equipment, complete startup and verify heating and cooling operation.
+10-year parts warranty and 2-year labor warranty.
+Total installed price: $18,000.
+Equipment: $11,000.
+Labor and installation materials: $7,000.
+
+Distribution review:
+No duct review or applicable airflow/static verification for the larger equipment is included.
+No duct defect is documented.

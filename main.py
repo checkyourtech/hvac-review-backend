@@ -29,6 +29,15 @@ from system_sizing import (
     comparable_heat_pump_plan,
 )
 from pypdf import PdfReader
+from duct_airflow import (
+    DUCT_AIRFLOW_RULES, duct_required, duct_text, duct_items,
+    normalize_duct_assessments, finalize_duct_fields, duct_paragraphs, compose_duct_summary,
+    present_supported_duct_replacement,
+    only_partial_duct_gap, present_partial_duct_replacement,
+    only_measured_duct_conflict, present_bad_duct_replacement,
+    present_capacity_increase,
+    present_supported_return_correction,
+)
 import fitz  # PyMuPDF
 
 load_dotenv()
@@ -375,6 +384,10 @@ maintenance or isolated refrigerant repair merely because existing capacity is m
 Sizing, equipment matching and replacement basis remain independent assessments.
 
 Select duct_airflow when the proposal involves airflow, static pressure, blower airflow configuration, duct restrictions, supply or return restrictions, or ductwork evaluation.
+Select it for ducted replacement using existing ducts, ducted mini-splits, capacity increases
+on existing ducts, duct modifications, or material zoning/static issues. Exclude true ductless
+heads, outdoor condenser-fan airflow, and isolated component/refrigerant repairs unless indoor
+air distribution is independently material. Matching, sizing and startup do not prove duct support.
 
 Select warranty whenever warranty coverage materially affects a major repair or replacement decision.
 
@@ -470,6 +483,8 @@ Classify the following HVAC quote or quotes:
     )
 
     classification = completion.choices[0].message.parsed
+    if duct_required(all_quotes_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(all_quotes_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
     return classification
@@ -2610,10 +2625,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
             ).replace("IGNITER_REPAIR_LOGIC =\n", ""),
         ]
     ),
-    AnalysisModule.DUCT_AIRFLOW: _prompt_section(
-        _legacy_electrical,
-        "AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW",
-    ),
+    AnalysisModule.DUCT_AIRFLOW: DUCT_AIRFLOW_RULES,
     AnalysisModule.WARRANTY: UNIVERSAL_WARRANTY_RULES,
     AnalysisModule.COMMISSIONING: "\n\n".join(
         [
@@ -2806,6 +2818,8 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    if duct_required(quote_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(quote_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
     selected_modules = [
@@ -4620,6 +4634,10 @@ def normalize_replacement_basis_customer_fields(
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if duct_text(question) and not any(
+        term in normalized for term in ("price", "pricing", "cost", "itemiz", "breakdown", "quoted total", "charges")
+    ):
+        return "duct_airflow"
     if sizing_backup_text(question):
         return "system_sizing_backup"
     if sizing_text(question) or re.search(r"\bload calculations\b", normalized):
@@ -4974,6 +4992,27 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if category == "verification" and (
+            only_partial_duct_gap(analysis) or only_measured_duct_conflict(analysis)
+        ):
+            # A distribution gap alone does not justify a generic startup question.
+            # Independent material commissioning assessments prevent this gate.
+            continue
+        if (category == "warranty" and only_partial_duct_gap(analysis)
+                and "warranty" not in material_contractor_question_categories(analysis)):
+            affirmative_warranty = " ".join(
+                line for line in quote_text.splitlines()
+                if not re.search(r"\b(?:no|not|excluded|pending)\b", line, re.I)
+            )
+            if all(re.search(rf"\b\d+[- ]year {coverage} warranty\b", affirmative_warranty, re.I)
+                   for coverage in ("parts", "labor")):
+                # Documented coverage needs no generic clarification merely because
+                # ducts are partial. Material warranty gaps/actions remain eligible.
+                continue
+        if category == "duct_airflow" and not any(
+            item.scope_support != "APPROPRIATE" for item in duct_items(analysis)
+        ):
+            continue
         if category != "pricing" and category not in questions_by_category:
             questions_by_category[category] = question
 
@@ -5006,6 +5045,7 @@ def build_contractor_questions(
         }
 
     priority = {
+        "duct_airflow": 2,
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
         "system_sizing": 2,
@@ -5493,6 +5533,41 @@ def system_sizing_report_paragraphs(analysis: HVACAnalysis) -> List[str]:
     return paragraphs
 
 
+def factual_review_summary(quote_text: str) -> str:
+    """Orient the customer from explicit scope facts, never recycled filtered prose."""
+    # Keep affirmative source clauses; a missing/denied procedure is not scope.
+    clauses = re.split(r"\n|(?<=[.!?;])\s+", str(quote_text or ""))
+    source = " ".join(c for c in clauses if not re.search(
+        r"\b(?:no|not|excluded|pending|without)\b", c, re.I))
+    full_replacement = bool(re.search(
+        r"(?:complete|full|entire) (?:existing )?(?:ducted )?(?:hvac )?system replacement|"
+        r"replac\w* (?:the )?(?:complete|full|entire) (?:existing )?(?:ducted )?(?:hvac )?system",
+        source, re.I))
+    elective = bool(re.search(r"homeowner (?:requests?|requested).*?(?:planned|proactive|voluntary|elective)", source, re.I))
+    work = []
+    if full_replacement:
+        work.append("a complete HVAC system replacement")
+    else:
+        for component in ("heat pump", "air handler", "furnace", "air conditioner", "compressor",
+                          "capacitor", "contactor", "blower motor", "igniter", "control board"):
+            if re.search(r"(?:replac\w*|install\w*) (?:the |a |new |existing |failed )*" + re.escape(component), source, re.I):
+                work.append(f"{component} replacement or installation")
+        if re.search(r"(?:add|recharge|replenish)\w*.*refrigerant", source, re.I):
+            work.append("refrigerant service")
+        if re.search(r"(?:repair|replac|modify|seal|reconnect)\w*.*duct", source, re.I) and not work:
+            work.append("ductwork repairs or modifications")
+    if not work:
+        return "The submitted information does not identify the proposed equipment or scope of work."
+    summary = "The quote proposes " + ", ".join(work)
+    if elective:
+        summary += " as a homeowner-requested planned upgrade"
+    if re.search(r"(?:using|reus\w*) (?:the )?existing (?:supply and return )?duct|existing ducts (?:will be )?reused", source, re.I):
+        summary += ", using the existing ductwork"
+    if re.search(r"(?:scope includes|propos\w*).*?(?:replac\w*|enlarg\w*|modify\w*).*?return", source, re.I):
+        summary += ", with return-duct modifications included"
+    return summary + "."
+
+
 def finalize_customer_analysis(
     analysis: HVACAnalysis,
     quote_text: str = "",
@@ -5507,6 +5582,7 @@ def finalize_customer_analysis(
     calibrate_elective_incomplete_equipment_match(finalized, quote_text)
 
     normalize_system_sizing_assessments(finalized, quote_text, classification)
+    normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
 
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
@@ -5549,6 +5625,7 @@ def finalize_customer_analysis(
             "the submitted proposal."
         )
     normalize_system_sizing_customer_fields(finalized, quote_text)
+    finalize_duct_fields(finalized, quote_text)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
     ensure_pricing_required_action(finalized.decision)
@@ -5655,6 +5732,7 @@ def finalize_customer_analysis(
         )
 
     compose_system_sizing_summary(finalized, quote_text)
+    compose_duct_summary(finalized)
 
     for field_name in (
         "project_overview",
@@ -5681,6 +5759,18 @@ def finalize_customer_analysis(
     finalized.good_signs = [
         plain_language_prioritization(sign) for sign in finalized.good_signs
     ]
+    # Credit a submitted sizing basis without turning it into a performance promise.
+    supported_sizing = sizing_assessments(finalized)
+    if supported_sizing and all(
+        item.diagnostic_evidence_status in {"ADEQUATE", "CONFIRMED"}
+        and item.scope_support == "APPROPRIATE" for item in supported_sizing
+    ):
+        finalized.good_signs = list(dict.fromkeys(
+            "The proposed size is tied to building-specific load results."
+            if re.search(r"building[- ]specific load", sign, re.I)
+            and re.search(r"\bensur\w*\b", sign, re.I)
+            else sign for sign in finalized.good_signs
+        ))
     finalized.contractor_questions = [
         plain_language_prioritization(question)
         for question in finalized.contractor_questions
@@ -5707,6 +5797,30 @@ def finalize_customer_analysis(
     for name in ("good_signs", "red_flags", "contractor_questions"):
         setattr(finalized, name, [cleaned for value in getattr(finalized, name)
                                 if (cleaned := customer_pricing_text(value))])
+    present_supported_duct_replacement(
+        finalized, quote_text, sizing_assessments(finalized),
+        primary_equipment_matching_assessment(finalized),
+    )
+    present_partial_duct_replacement(
+        finalized, quote_text, sizing_assessments(finalized),
+        primary_equipment_matching_assessment(finalized),
+    )
+    present_bad_duct_replacement(
+        finalized, sizing_assessments(finalized), primary_equipment_matching_assessment(finalized),
+    )
+    present_capacity_increase(
+        finalized, quote_text, sizing_assessments(finalized),
+        primary_equipment_matching_assessment(finalized),
+    )
+    present_supported_return_correction(
+        finalized, quote_text, sizing_assessments(finalized),
+        primary_equipment_matching_assessment(finalized),
+    )
+    # Last text safeguard: earlier ownership filters can remove an entire summary.
+    # Do not restore the unsafe original or ask the renderer to infer a summary.
+    if (not str(finalized.project_overview or "").strip()
+            or finalized.project_overview == "The proposal includes HVAC equipment work."):
+        finalized.project_overview = factual_review_summary(quote_text)
     return finalized
 
 
@@ -5804,6 +5918,11 @@ def build_report_html(analysis, quote_count=None):
         + ''.join(f'<p>{esc(paragraph)}</p>' for paragraph in sizing_paragraphs)
         + '</div>'
     ) if sizing_paragraphs else ""
+    duct_section = (
+        '<div class="card"><h2>Can the Ductwork Support the Proposed System?</h2>'
+        + ''.join(f'<p>{esc(paragraph)}</p>' for paragraph in duct_paragraphs(analysis))
+        + '</div>'
+    ) if duct_items(analysis) else ""
     project_overview = clean(analysis.project_overview)
 
     plain_english = clean(analysis.homeowner_takeaway)
@@ -6078,6 +6197,7 @@ ul {{
 
     {section("Does the Diagnosis Make Sense?", equipment_analysis)}
     {sizing_section}
+    {duct_section}
 
     {section(
         "Important Missing Information",
