@@ -184,8 +184,63 @@ def return_gap_resolved_by_source(value):
         and re.search(r"missing|not |no |absent|unclear|unverified|verif\w*|confirm\w*|needed|needs|not yet", value, re.I)))
 
 
+def submitted_measured_duct_support(text):
+    """Recover an explicitly scoped measurement pair, never supply design defaults.
+
+    Require one proposed-equipment distribution block, matching units, unique
+    values and affirmative measured (not promised) results. Ambiguity abstains.
+    Return source evidence and explicit numerical conflicts separately.
+    """
+    if len(re.findall(r"(?m)^\s*QUOTE \d+", text)) > 1:
+        return None
+    blocks = re.findall(
+        r"(?im)^\s*(?:Distribution|Duct(?:work)?) review for (?:the )?(?:same )?proposed equipment(?: and cooling configuration)?:[^\n]*\n((?:[^\n]+\n?)+)", text)
+    if len(blocks) != 1:
+        return None
+    block = blocks[0]
+    # Inconsistent contexts, units, qualifications or promised future readings
+    # must not be turned into a supported measurement assessment.
+    if re.search(r"\b(?:will|planned|estimated|approximately|pending|unverified|not measured|not applicable|different configuration|old equipment only)\b|\bno (?:measured |submitted |total external )?(?:static|airflow|limit|target)", block, re.I):
+        return None
+    pair = static_comparison([block])
+    if not pair or min(pair) <= 0:
+        return None
+    evidence = [line.strip() for line in block.splitlines()
+                if re.search(r"total external static|delivered airflow|fan table", line, re.I)]
+    if pair[0] > pair[1]:
+        return evidence, [f"The total external static reading is {pair[0]:g} in. w.c., above the submitted {pair[1]:g} in. w.c. limit for this equipment/configuration. No correction is documented."]
+    measured = re.findall(r"delivered airflow measured at ([\d,]+(?:\.\d+)?)\s*CFM\b", block, re.I)
+    targets = re.findall(r"submitted (?:airflow )?target(?: of)? ([\d,]+(?:\.\d+)?)\s*CFM\b", block, re.I)
+    if len(set(measured)) != 1 or len(set(targets)) != 1:
+        return None
+    actual, target = (float(values[0].replace(",", "")) for values in (measured, targets))
+    if min(actual, target) <= 0 or actual != target:
+        return None  # No inferred tolerance or universal CFM-per-ton rule.
+    # Do not overlook another measurement, configuration or unresolved problem
+    # elsewhere in the source while accepting a favorable block.
+    if static_comparison([text]) != pair:
+        return None
+    all_flows = re.findall(r"delivered airflow measured at ([\d,]+(?:\.\d+)?)\s*CFM\b", text, re.I)
+    all_targets = re.findall(r"submitted (?:airflow )?target(?: of)? ([\d,]+(?:\.\d+)?)\s*CFM\b", text, re.I)
+    if set(all_flows) != set(measured) or set(all_targets) != set(targets):
+        return None
+    for line in text.splitlines():
+        if re.search(r"duct|airflow|static|return|supply|blower|filter|zoning", line, re.I):
+            if re.search(r"restrict|crush|disconnect|damage|leakage|conflict|exceed|above.*limit|below.*(?:target|requirement)|insufficient|unresolved|inadequate|undersized|blockage", line, re.I):
+                return None  # Corrective scope is handled by its existing owner.
+    return evidence, []
+
+
+def measured_gap_resolved(value):
+    """Only erase missing-evidence gaps answered by the same submitted pairs."""
+    if re.search(r"leak|restrict|filter|zoning|noise|room|balance|damage|blower|conflict|different|exceed", value, re.I):
+        return False
+    return bool(re.search(r"duct|airflow|static", value, re.I)
+                and re.search(r"not |no |missing|absent|unclear|unverified|doesn't|lack|verify|confirm", value, re.I))
+
+
 def normalize_duct_assessments(analysis, text, assessment_type, classification=None):
-    """Only called on the finalizer's deep copy; absent assessment stays incomplete."""
+    """Finalized-only recovery; unsupported or ambiguous source stays unresolved."""
     items = duct_items(analysis)
     if re.search(r"\bductless\b", text, re.I) and not duct_required(text, classification):
         analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
@@ -198,6 +253,30 @@ def normalize_duct_assessments(analysis, text, assessment_type, classification=N
         items = [item]
     for item in items:
         recovery = submitted_return_correction(text) if len(items) == 1 else None
+        measured = (submitted_measured_duct_support(text)
+                    if len(items) == 1 and not recovery and not scoped_correction(item)
+                    and duct_required(text, classification) else None)
+        if measured:
+            original = item
+            facts, source_conflicts = measured
+            explicit_conflicts = [c for c in item.contradictions if not _missing_only(c)]
+            evidence_conflict = any(re.search(r"exceed|above.*limit|below.*requirement|uncorrected|restriction", e, re.I)
+                                    for e in item.documented_evidence)
+            existing_pair = static_comparison(item.documented_evidence)
+            source_pair = static_comparison(facts)
+            inconsistent = bool(existing_pair and existing_pair != source_pair)
+            remaining = [g for g in item.material_gaps if not measured_gap_resolved(g)]
+            unexplained_contradiction = item.diagnostic_evidence_status == "CONTRADICTORY" and not item.contradictions
+            can_support = not (source_conflicts or explicit_conflicts or evidence_conflict or inconsistent or remaining or unexplained_contradiction)
+            if source_conflicts or can_support:
+                item = item.model_copy(update=dict(
+                    diagnostic_evidence_status="CONTRADICTORY" if source_conflicts else "ADEQUATE",
+                    scope_support="UNSUPPORTED" if source_conflicts else "APPROPRIATE",
+                    documented_evidence=list(dict.fromkeys([*facts, *item.documented_evidence])),
+                    material_gaps=remaining,
+                    contradictions=list(dict.fromkeys([*explicit_conflicts, *source_conflicts])),
+                ))
+                analysis.technical_assessments = [item if a is original else a for a in analysis.technical_assessments]
         if recovery:
             # Source establishes the proposed work, not its future measured outcome.
             original = item
@@ -274,6 +353,28 @@ def capacity_duct_paragraph(values):
     )
 
 
+def concise_supported_measurements(item):
+    """Render comparable supported facts once; never recalibrate the assessment."""
+    pair = static_comparison(item.documented_evidence)
+    text = " ".join(item.documented_evidence)
+    readings = re.findall(r"(?:delivered|measured) airflow(?: measured)?(?: at| is| of)?\s+([\d,]+(?:\.\d+)?)\s*CFM", text, re.I)
+    targets = re.findall(r"(?:submitted )?(?:airflow )?target(?: of| is)?\s+([\d,]+(?:\.\d+)?)\s*CFM", text, re.I)
+    readings = {float(v.replace(",", "")) for v in readings}
+    targets = {float(v.replace(",", "")) for v in targets}
+    if not pair or pair[0] > pair[1] or len(readings) != 1 or readings != targets:
+        return None
+    airflow = next(iter(readings))
+    limit_text = format(pair[1], ".12g")
+    whole, _, fraction = limit_text.partition(".")
+    limit_text = whole + "." + fraction.ljust(2, "0")
+    return (
+        f"Total external static pressure is {pair[0]:g} in. w.c. against the submitted {limit_text} in. w.c. limit. "
+        f"Delivered airflow is {airflow:,g} CFM, matching the submitted {airflow:,g} CFM target. "
+        "Those measurements support using the proposed equipment with the existing ducts; "
+        "final airflow still depends on installation and setup."
+    )
+
+
 def duct_paragraphs(analysis):
     paragraphs = []
     for item in duct_items(analysis):
@@ -306,7 +407,8 @@ def duct_paragraphs(analysis):
             if scoped_correction(item):
                 paragraphs.append(evidence + " The proposed correction addresses the documented restriction or damage. Airflow still needs to be checked after the work; these are proposed steps, not completed results.")
             else:
-                paragraphs.append(evidence + " This gives a documented basis for using the proposed equipment with the ducts. Final airflow still depends on the installation and setup.")
+                paragraphs.append(concise_supported_measurements(item) or (
+                    evidence + " This gives a documented basis for using the proposed equipment with the ducts. Final airflow still depends on the installation and setup."))
     return paragraphs
 
 

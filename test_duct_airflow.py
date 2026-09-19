@@ -44,6 +44,13 @@ def raw_case(name="good"):
 
 
 class DuctAirflowTests(unittest.TestCase):
+    def setUp(self):
+        # Isolate accepted duct calibration from newly material startup scope.
+        # Real whole-report legacy-fixture behavior is covered by Phase 2F.
+        startup_patcher = patch("commissioning.commissioning_required", return_value=False)
+        startup_patcher.start()
+        self.addCleanup(startup_patcher.stop)
+
     def final(self, name):
         return main.finalize_customer_analysis(raw_case(name), source(name), 1)
 
@@ -122,8 +129,63 @@ class DuctAirflowTests(unittest.TestCase):
         before = raw.model_dump()
         final = main.finalize_customer_analysis(raw, source("good"), 1)
         self.assertEqual(raw.model_dump(), before)
-        self.assertEqual(duct_items(final)[0].diagnostic_evidence_status, "INCOMPLETE")
-        self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
+        self.assertEqual(duct_items(final)[0].diagnostic_evidence_status, "ADEQUATE")
+        self.assertEqual(final.decision.technical_support, "SUPPORTED")
+
+    def test_measured_source_recovery_for_weakened_ai(self):
+        raw = raw_case("partial")
+        before = raw.model_dump()
+        final = main.finalize_customer_analysis(raw, source("good"), 1)
+        self.assertEqual(raw.model_dump(), before)
+        item = duct_items(final)[0]
+        self.assertEqual((item.diagnostic_evidence_status, item.scope_support), ("ADEQUATE", "APPROPRIATE"))
+        self.assertFalse(item.material_gaps)
+        self.assertFalse(final.contractor_questions)
+
+    def test_measured_source_recovery_ambiguous_stays_partial(self):
+        variants = [
+            source("good").replace("for proposed equipment and cooling configuration", "for old equipment"),
+            source("good").replace("submitted manufacturer limit 0.80 in. w.c.", "limit not supplied"),
+            source("good").replace("Delivered airflow measured at 1,100 CFM", "Airflow estimated at 1,100 CFM"),
+            source("good").replace("submitted target 1,100 CFM", "target not supplied"),
+            source("good").replace("for this configuration", "for a different configuration"),
+            source("good").replace("Delivered airflow measured at 1,100 CFM", "Delivered airflow measured at 31 cubic meters/minute"),
+            source("good") + "\nDelivered airflow measured at 900 CFM against submitted target 1,100 CFM.\n",
+            source("good") + "\nUnresolved return duct restriction.\n",
+            source("good").replace("Total external static pressure measured", "No total external static pressure measured"),
+            "QUOTE 1\n" + source("good") + "\nQUOTE 2\n" + source("good"),
+        ]
+        for text in variants:
+            with self.subTest(text=text[-180:]):
+                raw = analysis(*domain_items(), sizing())
+                final = main.finalize_customer_analysis(raw, text, 1)
+                self.assertEqual(duct_items(final)[0].scope_support, "PARTIALLY_DEFINED")
+
+    def test_omitted_bad_source_remains_unsupported(self):
+        raw = analysis(*domain_items(), sizing())
+        final = main.finalize_customer_analysis(raw, source("bad"), 1)
+        self.assertEqual(duct_items(final)[0].scope_support, "UNSUPPORTED")
+        self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
+
+    def test_measured_source_does_not_override_structured_contradiction(self):
+        raw = raw_case("bad")
+        final = main.finalize_customer_analysis(raw, source("good"), 1)
+        self.assertEqual(duct_items(final)[0].scope_support, "UNSUPPORTED")
+        self.assertTrue(duct_items(final)[0].contradictions)
+
+    def test_measured_source_preserves_independent_material_gap(self):
+        raw = raw_case("partial")
+        duct_items(raw)[0].material_gaps = ["Room airflow balance is not documented."]
+        final = main.finalize_customer_analysis(raw, source("good"), 1)
+        self.assertEqual(duct_items(final)[0].scope_support, "PARTIALLY_DEFINED")
+        self.assertIn("Room airflow balance is not documented.", duct_items(final)[0].material_gaps)
+
+    def test_omitted_non_good_sources_keep_phase2e_boundaries(self):
+        for name, scope in (("partial", "PARTIALLY_DEFINED"), ("capacity_increase", "PARTIALLY_DEFINED"),
+                            ("return_restriction", "APPROPRIATE")):
+            with self.subTest(name=name):
+                final = main.finalize_customer_analysis(analysis(*domain_items(), sizing()), source(name), 1)
+                self.assertEqual(duct_items(final)[0].scope_support, scope)
 
     def test_false_positive_support_firewalls(self):
         for evidence in ("Cooling temperature split is 20 F", "Furnace temperature rise is within manufacturer range",
@@ -533,7 +595,7 @@ class DuctAirflowTests(unittest.TestCase):
             material_gaps=["Required final safety verification is not defined."]))
         raw.contractor_questions = ["How will you verify heating and cooling operation after installation?"]
         final = main.finalize_customer_analysis(raw, source("partial"), 1)
-        self.assertIn("verification", [main.contractor_question_category(q) for q in final.contractor_questions])
+        self.assertIn("commissioning", [main.contractor_question_category(q) for q in final.contractor_questions])
         self.assertIn("duct_airflow", [main.contractor_question_category(q) for q in final.contractor_questions])
 
     def test_bad_whole_report_has_only_measured_duct_conflict(self):
@@ -627,7 +689,7 @@ class DuctAirflowTests(unittest.TestCase):
             material_gaps=["Safety verification after installation is undefined."]))
         raw.contractor_questions = ["How will you verify safety after installation?"]
         final = main.finalize_customer_analysis(raw, source("bad"), 1)
-        self.assertIn("verification", [main.contractor_question_category(q) for q in final.contractor_questions])
+        self.assertIn("commissioning", [main.contractor_question_category(q) for q in final.contractor_questions])
 
     def test_capacity_increase_whole_report_isolates_larger_system_duct_gap(self):
         from fastapi.testclient import TestClient

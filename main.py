@@ -39,6 +39,13 @@ from duct_airflow import (
     present_supported_return_correction,
 )
 import fitz  # PyMuPDF
+from commissioning import (
+    COMMISSIONING_RULES, commissioning_required, commissioning_text, commissioning_question,
+    commissioning_items, normalize_commissioning_assessments,
+    finalize_commissioning_fields, commissioning_paragraphs, compose_commissioning_summary,
+    present_supported_commissioning, present_partial_commissioning, customer_source_text,
+    present_bad_commissioning, present_completed_commissioning, present_failed_commissioning,
+)
 
 load_dotenv()
 
@@ -392,6 +399,10 @@ air distribution is independently material. Matching, sizing and startup do not 
 Select warranty whenever warranty coverage materially affects a major repair or replacement decision.
 
 Select commissioning when startup, pressure testing, evacuation, charging verification, airflow verification, or post-repair operational verification is material to the proposed work.
+Always include commissioning for material equipment installations: full replacement,
+furnace/air-handler/heat-pump replacement, new installation, mini-split (including
+ductless), package unit, VRF/multi-zone, and major control or circuit conversions.
+Do not add whole-system commissioning for isolated minor component repairs.
 
 Select repair_vs_replace whenever a complete HVAC system, furnace, air conditioner,
 condenser-and-coil system, heat-pump/air-handler system, or other major equipment is being
@@ -483,6 +494,8 @@ Classify the following HVAC quote or quotes:
     )
 
     classification = completion.choices[0].message.parsed
+    if commissioning_required(all_quotes_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.COMMISSIONING)
     if duct_required(all_quotes_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(all_quotes_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
@@ -2561,6 +2574,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
                 "COMPRESSOR REPAIR ANALYSIS RULES",
                 "REPAIR SCOPE",
             ),
+            _prompt_section(_legacy_compressor, "REPAIR SCOPE", "WARRANTY\n\nFor a compressor repair"),
             _prompt_section(
                 _legacy_compressor,
                 "HOMEOWNER QUESTIONS",
@@ -2579,6 +2593,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
                 "RECHARGE-ONLY PROPOSALS",
                 "PRESSURE TESTING",
             ),
+            _prompt_section(_legacy_refrigerant, "PRESSURE TESTING", "REFRIGERANT TYPE AND SYSTEM AGE"),
             _prompt_section(
                 _legacy_refrigerant,
                 "REFRIGERANT TYPE AND SYSTEM AGE",
@@ -2627,20 +2642,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
     ),
     AnalysisModule.DUCT_AIRFLOW: DUCT_AIRFLOW_RULES,
     AnalysisModule.WARRANTY: UNIVERSAL_WARRANTY_RULES,
-    AnalysisModule.COMMISSIONING: "\n\n".join(
-        [
-            _prompt_section(
-                _legacy_compressor,
-                "REPAIR SCOPE",
-                "WARRANTY\n\nFor a compressor repair",
-            ),
-            _prompt_section(
-                _legacy_refrigerant,
-                "PRESSURE TESTING",
-                "REFRIGERANT TYPE AND SYSTEM AGE",
-            ),
-        ]
-    ),
+    AnalysisModule.COMMISSIONING: COMMISSIONING_RULES,
     AnalysisModule.SYSTEM_SIZING: SYSTEM_SIZING_RULES,
     AnalysisModule.REPAIR_VS_REPLACE: REPAIR_VS_REPLACE_ANALYSIS_RULES,
     AnalysisModule.PRICING: UNIVERSAL_PRICING_RULES,
@@ -2818,6 +2820,8 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    if commissioning_required(quote_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.COMMISSIONING)
     if duct_required(quote_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(quote_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
@@ -3547,6 +3551,9 @@ def normalize_documented_replacement_startup(
     quote_text: str,
 ) -> None:
     """Do not re-request generic startup work already included in a replacement."""
+    if commissioning_items(analysis):
+        # Phase 2F owns startup cleanup whenever a structured assessment exists.
+        return
     if (
         not has_primary_equipment_matching_assessment(analysis)
         or analysis.decision.technical_support != "SUPPORTED"
@@ -4634,6 +4641,8 @@ def normalize_replacement_basis_customer_fields(
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if commissioning_question(question) and not any(term in normalized for term in ("pricing", "price", "itemiz", "cost", "charges")):
+        return "commissioning"
     if duct_text(question) and not any(
         term in normalized for term in ("price", "pricing", "cost", "itemiz", "breakdown", "quoted total", "charges")
     ):
@@ -4992,7 +5001,7 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
-        if category == "verification" and (
+        if category in {"verification", "commissioning"} and (
             only_partial_duct_gap(analysis) or only_measured_duct_conflict(analysis)
         ):
             # A distribution gap alone does not justify a generic startup question.
@@ -5045,6 +5054,7 @@ def build_contractor_questions(
         }
 
     priority = {
+        "commissioning": 2,
         "duct_airflow": 2,
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
@@ -5583,6 +5593,7 @@ def finalize_customer_analysis(
 
     normalize_system_sizing_assessments(finalized, quote_text, classification)
     normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
+    normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
 
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
@@ -5626,6 +5637,7 @@ def finalize_customer_analysis(
         )
     normalize_system_sizing_customer_fields(finalized, quote_text)
     finalize_duct_fields(finalized, quote_text)
+    finalize_commissioning_fields(finalized)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
     ensure_pricing_required_action(finalized.decision)
@@ -5816,6 +5828,22 @@ def finalize_customer_analysis(
         finalized, quote_text, sizing_assessments(finalized),
         primary_equipment_matching_assessment(finalized),
     )
+    compose_commissioning_summary(finalized)
+    present_bad_commissioning(finalized)
+    present_supported_commissioning(finalized, quote_text, sizing_assessments(finalized),
+                                   primary_equipment_matching_assessment(finalized), duct_items(finalized))
+    present_partial_commissioning(finalized, quote_text, sizing_assessments(finalized),
+                                 primary_equipment_matching_assessment(finalized), duct_items(finalized))
+    present_completed_commissioning(finalized, quote_text, sizing_assessments(finalized),
+                                   primary_equipment_matching_assessment(finalized), duct_items(finalized))
+    present_failed_commissioning(finalized, quote_text)
+    # Transport metadata is not a customer finding. Leave structured evidence intact.
+    for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
+                 "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line",
+                 "quote_comparison", "best_quote_recommendation", "contractor_vetting"):
+        setattr(finalized, name, customer_source_text(getattr(finalized, name)))
+    for name in ("red_flags", "good_signs", "contractor_questions"):
+        setattr(finalized, name, [clean for s in getattr(finalized, name) if (clean := customer_source_text(s))])
     # Last text safeguard: earlier ownership filters can remove an entire summary.
     # Do not restore the unsafe original or ask the renderer to infer a summary.
     if (not str(finalized.project_overview or "").strip()
@@ -5913,6 +5941,12 @@ def build_report_html(analysis, quote_count=None):
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     sizing_paragraphs = system_sizing_report_paragraphs(analysis)
+    startup_paragraphs = commissioning_paragraphs(analysis)
+    startup_section = (
+        '<div class="card"><h2>How Will Startup Be Verified?</h2>'
+        + ''.join(f'<p>{esc(paragraph)}</p>' for paragraph in startup_paragraphs)
+        + '</div>'
+    ) if startup_paragraphs else ""
     sizing_section = (
         '<div class="card"><h2>Is the New System the Right Size?</h2>'
         + ''.join(f'<p>{esc(paragraph)}</p>' for paragraph in sizing_paragraphs)
@@ -6198,6 +6232,7 @@ ul {{
     {section("Does the Diagnosis Make Sense?", equipment_analysis)}
     {sizing_section}
     {duct_section}
+    {startup_section}
 
     {section(
         "Important Missing Information",

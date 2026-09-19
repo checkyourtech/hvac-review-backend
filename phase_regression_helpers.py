@@ -9,5 +9,8 @@ import main
 
 
 def finalize_prior_module_analysis(*args, **kwargs):
-    with patch.object(main, "sizing_required", return_value=False):
+    # These are prior-domain unit scenarios, not Phase 2F whole-report acceptance.
+    # Their unchanged source fixtures have generic startup scope. Unmocked legacy
+    # whole-report commissioning expectations are tested in test_commissioning.
+    with patch.object(main, "sizing_required", return_value=False), patch("commissioning.commissioning_required", return_value=False):
         return main.finalize_customer_analysis(*args, **kwargs)

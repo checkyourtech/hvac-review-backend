@@ -66,6 +66,11 @@ class SizingOnlyTests(unittest.TestCase):
     """
     def setUp(self):
         super().setUp()
+        # Preserve Phase 2D isolation; Phase 2F tests the unchanged fixture's
+        # real whole-report commissioning gap without this scope mock.
+        startup_patcher = patch("commissioning.commissioning_required", return_value=False)
+        startup_patcher.start()
+        self.addCleanup(startup_patcher.stop)
         patcher = patch("duct_airflow.duct_required", return_value=False)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -359,7 +364,7 @@ class SizingPresentationTests(SizingOnlyTests):
         raw.technical_assessments.append(sizing("INCOMPLETE", "PARTIALLY_DEFINED",
             subject="Startup commissioning", evidence=[], gaps=["Startup verification steps are missing."]))
         final = main.finalize_customer_analysis(raw, quote_text=fixture("partial"))
-        self.assertIn(raw.contractor_questions[2], final.contractor_questions)
+        self.assertIn("commissioning", [main.contractor_question_category(q) for q in final.contractor_questions])
 
     def test_partial_prose_flags_and_questions_are_calibrated(self):
         raw = analysis(*domain_items(), sizing("ABSENT", "UNSUPPORTED", evidence=[]))

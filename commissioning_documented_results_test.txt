@@ -1,0 +1,33 @@
+HVAC SYSTEM REPLACEMENT PROPOSAL
+Project: Sample Home E, whole conditioned home, single system.
+The existing system is currently operating. No equipment failure is claimed.
+The homeowner requested a proactive replacement during a planned remodel.
+This is a voluntary planned upgrade, not a necessary repair or failure-driven replacement.
+Replace the complete ducted HVAC system using existing supply and return ducts.
+Proposed equipment: Example EX-C36 outdoor AC, Example EX-I36 indoor coil, and Example EX-F60 furnace.
+Condenser: Example EX-C36, 208/230V single-phase, R-454B.
+Coil: Example EX-I36, R-454B, with the factory-specified TXV listed on sheet E-17.
+Furnace: Example EX-F60, with the blower configuration listed on sheet E-17.
+Submitted manufacturer approved combination sheet E-17 lists EX-C36, EX-I36 and EX-F60 together as an approved matched combination with the specified metering device.
+
+Submitted building-specific load/selection summary E-17 for Sample Home E, whole conditioned home:
+Cooling load: 34,000 Btu/h. Heating load: 58,000 Btu/h.
+Design conditions: 95 F cooling and 20 F heating outdoors, 75 F and 70 F indoors.
+Cooling capacity: 3 tons nominal. Submitted manufacturer cooling output: 35,000 Btu/h at those conditions.
+Furnace output: 60,000 Btu/h.
+The project-specific selection summary ties these outputs to the listed loads and supports the proposed equipment selection for Sample Home E.
+
+Installation scope:
+Remove existing equipment, install the listed equipment, connect the listed equipment.
+10-year parts warranty and 2-year labor warranty.
+Total installed price: $18,000.
+Equipment: $11,000.
+Labor and installation materials: $7,000.
+
+Distribution review for proposed equipment and cooling configuration:
+Total external static pressure measured at 0.62 in. w.c.; submitted manufacturer limit 0.80 in. w.c. for this configuration. Static is within the submitted limit.
+Delivered airflow measured at 1,100 CFM against submitted target 1,100 CFM. The submitted fan table documents the selected blower profile at this static and airflow.
+
+Completed startup record supplied.
+Manufacturer startup procedure completed; applicable checks completed and passed.
+Final operating readings documented on the startup record. No unresolved failed material check remains.
