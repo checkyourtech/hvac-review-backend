@@ -1,0 +1,11 @@
+HVAC REPAIR PROPOSAL
+Claim: Evaporator coil refrigerant leak.
+Electronic leak detector confirmed a leak at the liquid-line service valve.
+Soap bubbles confirmed leakage at that service valve.
+The submitted inspection states the confirmed refrigerant leak is at the valve, not the coil.
+Recommended repair: Replace the evaporator coil despite that result.
+The proposal does not repair the leaking valve.
+Startup plan: Complete manufacturer startup procedure and document final readings.
+Total price: $4,850.
+Equipment and refrigerant: $3,000.
+Labor and installation materials: $1,850.

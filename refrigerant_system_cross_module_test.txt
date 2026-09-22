@@ -1,0 +1,13 @@
+HVAC REPAIR PROPOSAL
+Diagnosis: Low refrigerant charge.
+Suction pressure: 102 PSIG.
+Subcooling: 2 F.
+Manufacturer target subcooling: 10 F at the documented operating conditions.
+Superheat: 29 F.
+The technician found these measurements consistent with an undercharged system after airflow was verified.
+Electronic leak detector confirmed a leak at the liquid-line service valve.
+Recommended repair: Replace the leaking service valve core and restore refrigerant charge.
+Separate material commissioning scope: Startup included. No startup documentation is promised.
+Total price: $875.
+Parts and refrigerant: $500.
+Labor: $375.

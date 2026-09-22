@@ -184,11 +184,9 @@ class CustomerAnalysisFinalizationTests(unittest.TestCase):
         self.assertNotIn("does not include a leak search", combined)
         self.assertNotIn("absence of a leak search", combined)
         self.assertNotIn("leak search is essential", combined)
-        self.assertIn("underlying cause was evaluated", combined)
-        self.assertEqual(
-            sum("verif" in question.lower() for question in finalized.contractor_questions),
-            1,
-        )
+        self.assertIn("does not fully establish the refrigerant condition", combined)
+        self.assertEqual([main.contractor_question_category(q) for q in finalized.contractor_questions],
+                         ["refrigerant_evidence", "pricing"])
         self.assertEqual(
             sum(
                 any(term in question.lower() for term in ("price", "cost", "itemiz", "breakdown", "charges"))
@@ -207,9 +205,9 @@ class CustomerAnalysisFinalizationTests(unittest.TestCase):
         finalized = finalize_customer_analysis(raw, self.quote_text, 1)
         questions = finalized.contractor_questions
 
-        self.assertTrue(any("cause of the low charge" in q.lower() for q in questions))
-        self.assertTrue(any("leak investigation" in q.lower() for q in questions))
-        self.assertTrue(any("verif" in q.lower() for q in questions))
+        # Phase 2G asks the primary unresolved evidence question, not the old
+        # unconditional diagnosis/cause/verification checklist.
+        self.assertEqual([main.contractor_question_category(q) for q in questions], ["refrigerant_evidence", "pricing"])
         self.assertNotIn("Why was a leak search not included?", questions)
         self.assertIn("$950", questions[-1])
 
@@ -378,19 +376,13 @@ class CustomerAnalysisFinalizationTests(unittest.TestCase):
         self.assertNotIn("leading to a diagnosis", report_lower)
         self.assertNotIn("does not include a leak search", report_lower)
         self.assertNotIn("absence of a leak search", report_lower)
-        self.assertIn("underlying cause was evaluated", report_lower)
+        self.assertIn("does not fully establish the refrigerant condition", report_lower)
 
         questions = question_items(report)
-        self.assertEqual(sum("verif" in q.lower() for q in questions), 1)
+        self.assertEqual([main.contractor_question_category(q) for q in questions], ["refrigerant_evidence", "pricing"])
         self.assertEqual(sum("itemized breakdown" in q.lower() for q in questions), 1)
-        self.assertLess(
-            next(i for i, q in enumerate(questions) if "cause of the low charge" in q.lower()),
-            next(i for i, q in enumerate(questions) if "verif" in q.lower()),
-        )
-        self.assertLess(
-            next(i for i, q in enumerate(questions) if "verif" in q.lower()),
-            next(i for i, q in enumerate(questions) if "itemized breakdown" in q.lower()),
-        )
+        self.assertLess(next(i for i, q in enumerate(questions) if "readings" in q.lower()),
+                        next(i for i, q in enumerate(questions) if "itemized breakdown" in q.lower()))
         self.assertEqual(captured["html"], report)
         self.assertEqual(
             captured["analysis"].contractor_questions,

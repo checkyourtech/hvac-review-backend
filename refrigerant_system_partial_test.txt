@@ -1,0 +1,8 @@
+HVAC REPAIR PROPOSAL
+Diagnosis: Refrigerant condition not yet fully isolated.
+Suction pressure: 102 PSIG.
+Superheat: 29 F.
+The technician documented abnormal refrigerant behavior, but the cause is not established.
+Proposed work: Investigate the refrigerant condition before deciding whether to recharge or repair a component.
+Total diagnostic price: $250.
+Labor: $250.

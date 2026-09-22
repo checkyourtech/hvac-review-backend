@@ -39,6 +39,12 @@ from duct_airflow import (
     present_supported_return_correction,
 )
 import fitz  # PyMuPDF
+from refrigerant_system import (
+    REFRIGERANT_SYSTEM_RULES, refrigerant_required, refrigerant_items,
+    normalize_refrigerant_assessments, refrigerant_question_purpose,
+    refrigerant_customer_fields, refrigerant_paragraphs, compose_refrigerant_summary,
+    diagnostic_only_scope,
+)
 from commissioning import (
     COMMISSIONING_RULES, commissioning_required, commissioning_text, commissioning_question,
     commissioning_items, normalize_commissioning_assessments,
@@ -351,6 +357,10 @@ Choose all relevant analysis modules from:
 Use only module names from this list. Do not invent or return other module names.
 
 Select motors when diagnosis or replacement involves a blower motor, ECM module, condenser fan motor, inducer motor, or another HVAC motor.
+Select refrigerant_system for material charge diagnosis, recharge, suspected or confirmed
+leakage, coil circuit problems, TXV/piston/restriction diagnosis, and documented circuit-opening
+repairs. Do not select it for refrigerant type, factory charge, lineset size, equipment
+compatibility or generic manufacturer charging/startup language alone.
 
 Select furnace_combustion when the proposal involves furnace draft proving, an inducer sequence, a pressure switch, an igniter, flame proving, or furnace combustion/control safety sequence.
 
@@ -494,6 +504,12 @@ Classify the following HVAC quote or quotes:
     )
 
     classification = completion.choices[0].message.parsed
+    if refrigerant_required(all_quotes_text, classification) and AnalysisModule.REFRIGERANT_SYSTEM not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
+    elif (not refrigerant_required(all_quotes_text, classification)
+          and re.search(r"R-(?:410A|454B|32)|factory charge|charge per manufacturer|refrigerant compatibility", all_quotes_text, re.I)
+          and not re.search(r"diagnos|recharge|leak|circuit.*repair|refrigerant.*(?:measurement|test result)", all_quotes_text, re.I)):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.REFRIGERANT_SYSTEM]
     if commissioning_required(all_quotes_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
     if duct_required(all_quotes_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
@@ -2581,41 +2597,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
             ),
         ]
     ),
-    AnalysisModule.REFRIGERANT_SYSTEM: "\n\n".join(
-        [
-            _prompt_section(
-                _legacy_refrigerant,
-                "REFRIGERANT SYSTEM AND COIL REPAIR ANALYSIS RULES",
-                "DIAGNOSIS AND LEAK CONFIRMATION",
-            ),
-            _prompt_section(
-                _legacy_refrigerant,
-                "RECHARGE-ONLY PROPOSALS",
-                "PRESSURE TESTING",
-            ),
-            _prompt_section(_legacy_refrigerant, "PRESSURE TESTING", "REFRIGERANT TYPE AND SYSTEM AGE"),
-            _prompt_section(
-                _legacy_refrigerant,
-                "REFRIGERANT TYPE AND SYSTEM AGE",
-                "WARRANTY\n\nFor coil and refrigerant-system repairs",
-            ),
-            _prompt_section(
-                _legacy_refrigerant,
-                "LEAK DIAGNOSIS LIMITATION",
-            ),
-            _prompt_section(
-                _legacy_electrical,
-                "LOW-CHARGE DIAGNOSTIC EVIDENCE",
-                "LEAK / REFRIGERANT LOSS",
-            ),
-            _prompt_section(
-                _legacy_electrical,
-                "METERING DEVICE / TXV / PISTON REPAIRS",
-                "AIRFLOW / STATIC PRESSURE DIAGNOSTIC REVIEW",
-            ),
-            REFRIGERANT_DECISION_PRIORITY_RULES,
-        ]
-    ),
+    AnalysisModule.REFRIGERANT_SYSTEM: REFRIGERANT_SYSTEM_RULES,
     AnalysisModule.HEAT_EXCHANGER: HEAT_EXCHANGER_ANALYSIS_RULES,
     AnalysisModule.EQUIPMENT_MATCHING: EQUIPMENT_MATCHING_ANALYSIS_RULES,
     AnalysisModule.ELECTRICAL_CONTROLS: "\n\n".join(
@@ -2820,6 +2802,8 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    if refrigerant_required(quote_text, classification) and AnalysisModule.REFRIGERANT_SYSTEM not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
     if commissioning_required(quote_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
     if duct_required(quote_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
@@ -3781,6 +3765,11 @@ def normalize_refrigerant_customer_fields(
     quote_text: str,
 ) -> None:
     """Normalize low-charge concerns by evidence category, not model wording."""
+    if refrigerant_items(analysis):
+        refrigerant_customer_fields(analysis, quote_text)
+        return
+    if quote_text and not refrigerant_required(quote_text):
+        return
     if not refrigerant_context(analysis, quote_text):
         return
 
@@ -4643,6 +4632,9 @@ def contractor_question_category(question: str) -> str:
     normalized = " ".join(str(question or "").lower().split())
     if commissioning_question(question) and not any(term in normalized for term in ("pricing", "price", "itemiz", "cost", "charges")):
         return "commissioning"
+    refrigerant_purpose = refrigerant_question_purpose(question)
+    if refrigerant_purpose:
+        return refrigerant_purpose
     if duct_text(question) and not any(
         term in normalized for term in ("price", "pricing", "cost", "itemiz", "breakdown", "quoted total", "charges")
     ):
@@ -5001,6 +4993,16 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if diagnostic_only_scope(quote_text) and (
+            category in {"verification", "refrigerant_verification"}
+            or (re.search(r"verif|confirm|success|effective|follow.up|retest", question, re.I)
+                and re.search(r"recharg|repair|after.*investigat", question, re.I)
+                and not re.search(r"before.*(?:recommend|authoriz|approv)", question, re.I))
+        ):
+            # The purchased work is investigation, not a future repair. Asking
+            # how an unquoted repair will be verified is premature, not a second
+            # material diagnostic-scope question. Actual repair scopes bypass this.
+            continue
         if category in {"verification", "commissioning"} and (
             only_partial_duct_gap(analysis) or only_measured_duct_conflict(analysis)
         ):
@@ -5027,21 +5029,21 @@ def build_contractor_questions(
 
     is_refrigerant = refrigerant_context(analysis, quote_text)
     support_unresolved = analysis.decision.technical_support != "SUPPORTED"
-    if is_refrigerant and support_unresolved:
+    if is_refrigerant and support_unresolved and not refrigerant_items(analysis):
         if not low_charge_evidence_documented(quote_text):
             questions_by_category.setdefault(
-                "diagnostic_evidence",
+                "refrigerant_evidence",
                 "What testing or measurements established that the system is low on refrigerant?",
             )
         if not low_charge_cause_evaluated(quote_text):
             questions_by_category.setdefault(
-                "cause_or_leak_investigation",
+                "refrigerant_cause",
                 "Was the cause of the low charge evaluated, and was leak investigation "
                 "performed or recommended when appropriate?",
             )
         if not final_refrigerant_verification_documented(quote_text):
             questions_by_category.setdefault(
-                "verification",
+                "refrigerant_verification",
                 "How will the refrigerant charge and cooling performance be verified after the work?",
             )
 
@@ -5054,6 +5056,11 @@ def build_contractor_questions(
         }
 
     priority = {
+        "refrigerant_evidence": 0,
+        "refrigerant_cause": 1,
+        "leak_location": 1,
+        "refrigerant_repair_scope": 2,
+        "refrigerant_verification": 8,
         "commissioning": 2,
         "duct_airflow": 2,
         "diagnostic_evidence": 0,
@@ -5593,6 +5600,7 @@ def finalize_customer_analysis(
 
     normalize_system_sizing_assessments(finalized, quote_text, classification)
     normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
+    normalize_refrigerant_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
 
     ai_technical_support = finalized.decision.technical_support
@@ -5837,6 +5845,7 @@ def finalize_customer_analysis(
     present_completed_commissioning(finalized, quote_text, sizing_assessments(finalized),
                                    primary_equipment_matching_assessment(finalized), duct_items(finalized))
     present_failed_commissioning(finalized, quote_text)
+    compose_refrigerant_summary(finalized, quote_text)
     # Transport metadata is not a customer finding. Leave structured evidence intact.
     for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
                  "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line",
@@ -5941,6 +5950,10 @@ def build_report_html(analysis, quote_count=None):
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     sizing_paragraphs = system_sizing_report_paragraphs(analysis)
+    refrigerant_section = (
+        '<div class="card"><h2>What Does the Refrigerant Evidence Show?</h2>'
+        + ''.join(f'<p>{esc(p)}</p>' for p in refrigerant_paragraphs(analysis)) + '</div>'
+    ) if refrigerant_items(analysis) else ""
     startup_paragraphs = commissioning_paragraphs(analysis)
     startup_section = (
         '<div class="card"><h2>How Will Startup Be Verified?</h2>'
@@ -6233,6 +6246,7 @@ ul {{
     {sizing_section}
     {duct_section}
     {startup_section}
+    {refrigerant_section}
 
     {section(
         "Important Missing Information",

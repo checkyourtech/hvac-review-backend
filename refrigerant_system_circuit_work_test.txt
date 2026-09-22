@@ -1,0 +1,10 @@
+HVAC REPAIR PROPOSAL
+The damaged service valve was replaced during a documented repair.
+The refrigerant circuit was intentionally opened for that repair.
+The removed valve had a documented broken stem.
+Proposed work: Restore refrigerant charge after the service-valve repair.
+Verify final refrigerant charge using the manufacturer charging procedure and document results.
+There is no separate leak diagnosis.
+Total repair price: $875.
+Parts and refrigerant: $500.
+Labor: $375.

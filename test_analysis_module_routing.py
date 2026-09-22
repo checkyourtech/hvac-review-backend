@@ -349,8 +349,8 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
             classification.modules_required,
             [AnalysisModule.REFRIGERANT_SYSTEM],
         )
-        self.assertIn("REFRIGERANT SYSTEM AND COIL REPAIR", knowledge)
-        self.assertIn("METERING DEVICE / TXV / PISTON REPAIRS", knowledge)
+        self.assertIn("REFRIGERANT SYSTEM — DIAGNOSIS AND PROPOSED WORK", knowledge)
+        self.assertIn("TXV/piston", knowledge)
 
     def test_airflow_fixture_does_not_require_electrical_controls(self):
         classification = classification_for(AnalysisModule.DUCT_AIRFLOW)

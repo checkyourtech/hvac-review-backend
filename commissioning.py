@@ -60,6 +60,8 @@ def commissioning_text(value):
 
 
 def commissioning_required(text, classification=None):
+    if isolated_coil_repair(text):
+        return False
     # Source scope, not merely an equipment mention or a classifier module name.
     scope = r"(?:replace\w*|install\w*|conversion)"
     equipment = r"(?:full[- ]system|complete.{0,15}system|HVAC system|furnace|air[- ]handler|heat[- ]pump|condenser|mini[- ]split|package[d]?[- ]unit|VRF|multi[- ]zone|compressor|(?:evaporator|indoor) coil|refrigerant circuit|major control)"
@@ -74,6 +76,13 @@ def commissioning_required(text, classification=None):
         if re.search(r"\bnew (?:HVAC |system )?installation\b", line, re.I):
             return True
     return False
+
+
+def isolated_coil_repair(text):
+    """Generic startup prose does not make component repair whole-system startup."""
+    return bool(re.search(r"HVAC REPAIR PROPOSAL", text, re.I)
+                and re.search(r"Recommended repair:.*(?:replace|repair).*evaporator coil", text, re.I)
+                and not re.search(r"(?:replace|install|replacement).{0,40}(?:full.system|complete.*system|furnace|air.handler|heat.pump|condenser|compressor)|completed startup record|startup (?:sheet|record)|(?:failed|excluded|required).{0,40}(?:startup|safety)|(?:startup|safety).{0,40}(?:failed|excluded|required)", text, re.I))
 
 
 def commissioning_items(analysis):
@@ -123,6 +132,9 @@ def source_plan(text):
 
 def normalize_commissioning_assessments(analysis, text, assessment_type, classification=None):
     items = commissioning_items(analysis)
+    if isolated_coil_repair(text) and not any(a.contradictions or a.material_gaps for a in items):
+        analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
+        return
     material = commissioning_required(text, classification)
     if not items and not material:
         return
