@@ -1,0 +1,11 @@
+RESIDENTIAL COMPRESSOR REPAIR PROPOSAL
+Starting capacitor rated 45 microfarads +/-6% measured 18 microfarads.
+The failed starting capacitor was replaced; the compressor then started and ran normally after the capacitor replacement.
+No separate compressor-failure evidence was documented.
+Despite that result, the contractor recommends compressor replacement.
+Proposed repair: Replace the compressor in the existing system.
+Scope includes charge recovery, compressor and filter-drier replacement, pressure testing, evacuation and restoration of the specified charge.
+Startup plan: Follow the manufacturer startup procedure and document final operating readings.
+Total price: $4,950.
+Compressor and materials: $3,000.
+Labor: $1,950.

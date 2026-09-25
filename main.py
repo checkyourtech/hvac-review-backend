@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
+    normalize_compressor_pricing,
 )
 from system_sizing import (
     SIZING_SUBJECT, SYSTEM_SIZING_RULES, sizing_text, sizing_required,
@@ -51,6 +52,13 @@ from commissioning import (
     finalize_commissioning_fields, commissioning_paragraphs, compose_commissioning_summary,
     present_supported_commissioning, present_partial_commissioning, customer_source_text,
     present_bad_commissioning, present_completed_commissioning, present_failed_commissioning,
+)
+from compressor import (
+    COMPRESSOR_RULES, compressor_required, compressor_items, compressor_question,
+    normalize_compressor_assessments, finalize_compressor_fields,
+    compressor_paragraphs, compose_compressor_summary,
+    partial_voltage_drop, customer_compressor_text,
+    compressor_normal_after_start_repair,
 )
 
 load_dotenv()
@@ -439,6 +447,13 @@ For compressor replacement repairs, always include:
 - repair_vs_replace
 - pricing
 
+COMPRESSOR owns claimed compressor failure and whether compressor work follows.
+Use "Claimed compressor failure" as its PRIMARY technical assessment subject.
+Route for a material compressor diagnosis, ground/open/winding failure, locked
+compressor or compressor replacement. Do not route merely for a failed capacitor,
+contactor, other motor, refrigerant leak, or a compressor listed inside new equipment.
+An independent compressor-failure claim must actually be part of the proposal.
+
 Also include "commissioning" when the proposed repair includes refrigerant recovery, pressure testing, evacuation, vacuum targets, charging, or startup procedures.
 
 Include "warranty" whenever any manufacturer or contractor warranty is mentioned or should reasonably be checked for a major repair.
@@ -504,6 +519,10 @@ Classify the following HVAC quote or quotes:
     )
 
     classification = completion.choices[0].message.parsed
+    if compressor_required(all_quotes_text, classification) and AnalysisModule.COMPRESSOR not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.COMPRESSOR)
+    elif all_quotes_text.strip() and not compressor_required(all_quotes_text, classification):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.COMPRESSOR]
     if refrigerant_required(all_quotes_text, classification) and AnalysisModule.REFRIGERANT_SYSTEM not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
     elif (not refrigerant_required(all_quotes_text, classification)
@@ -2583,20 +2602,7 @@ wiring, permits, or complete electrical-code compliance has been verified.
 """
 
 ANALYSIS_MODULES: dict[AnalysisModule, str] = {
-    AnalysisModule.COMPRESSOR: "\n\n".join(
-        [
-            _prompt_section(
-                _legacy_compressor,
-                "COMPRESSOR REPAIR ANALYSIS RULES",
-                "REPAIR SCOPE",
-            ),
-            _prompt_section(_legacy_compressor, "REPAIR SCOPE", "WARRANTY\n\nFor a compressor repair"),
-            _prompt_section(
-                _legacy_compressor,
-                "HOMEOWNER QUESTIONS",
-            ),
-        ]
-    ),
+    AnalysisModule.COMPRESSOR: COMPRESSOR_RULES,
     AnalysisModule.REFRIGERANT_SYSTEM: REFRIGERANT_SYSTEM_RULES,
     AnalysisModule.HEAT_EXCHANGER: HEAT_EXCHANGER_ANALYSIS_RULES,
     AnalysisModule.EQUIPMENT_MATCHING: EQUIPMENT_MATCHING_ANALYSIS_RULES,
@@ -2802,6 +2808,10 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    if compressor_required(quote_text, classification) and AnalysisModule.COMPRESSOR not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.COMPRESSOR)
+    elif quote_text.strip() and not compressor_required(quote_text, classification):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.COMPRESSOR]
     if refrigerant_required(quote_text, classification) and AnalysisModule.REFRIGERANT_SYSTEM not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
     if commissioning_required(quote_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
@@ -3643,6 +3653,12 @@ def presupposes_mandatory_leak_search(question: str) -> bool:
 
 
 def refrigerant_context(analysis: HVACAnalysis, quote_text: str = "") -> bool:
+    if compressor_items(analysis) and quote_text.strip() and not refrigerant_items(analysis):
+        # Recovery/restoration scope is not a separate refrigerant diagnosis.
+        if not re.search(r"low (?:charge|refrigerant)|low on refrigerant|undercharg|overcharg|"
+                         r"refrigerant (?:leak|loss|diagnosis)|(?:coil|valve|line.set).{0,25}leak|"
+                         r"(?:TXV|metering).{0,25}(?:fail|restrict)|leak (?:at|detected|confirmed)", quote_text, re.I):
+            return False
     if sizing_assessments(analysis):
         # A newly partial sizing assessment must not turn a replacement's refrigerant
         # specification into a low-charge diagnosis. Preserve actual repair concerns.
@@ -4630,6 +4646,8 @@ def normalize_replacement_basis_customer_fields(
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if compressor_question(question):
+        return "compressor_evidence"
     if commissioning_question(question) and not any(term in normalized for term in ("pricing", "price", "itemiz", "cost", "charges")):
         return "commissioning"
     refrigerant_purpose = refrigerant_question_purpose(question)
@@ -4993,6 +5011,17 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if (partial_voltage_drop(analysis) or compressor_normal_after_start_repair(analysis)) and category not in {"compressor_evidence", "pricing"}:
+            independent_purposes = {
+                contractor_question_category(s)
+                for a in analysis.technical_assessments
+                if a not in compressor_items(analysis) and a.materiality != "MINOR"
+                and (a.diagnostic_evidence_status not in {"CONFIRMED", "ADEQUATE"}
+                     or a.scope_support != "APPROPRIATE" or a.material_gaps or a.contradictions)
+                for s in [a.subject, *a.material_gaps, *a.contradictions]
+            }
+            if category not in independent_purposes:
+                continue
         if diagnostic_only_scope(quote_text) and (
             category in {"verification", "refrigerant_verification"}
             or (re.search(r"verif|confirm|success|effective|follow.up|retest", question, re.I)
@@ -5056,6 +5085,7 @@ def build_contractor_questions(
         }
 
     priority = {
+        "compressor_evidence": 0,
         "refrigerant_evidence": 0,
         "refrigerant_cause": 1,
         "leak_location": 1,
@@ -5600,6 +5630,7 @@ def finalize_customer_analysis(
 
     normalize_system_sizing_assessments(finalized, quote_text, classification)
     normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
+    normalize_compressor_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_refrigerant_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
 
@@ -5646,6 +5677,9 @@ def finalize_customer_analysis(
     normalize_system_sizing_customer_fields(finalized, quote_text)
     finalize_duct_fields(finalized, quote_text)
     finalize_commissioning_fields(finalized)
+    finalize_compressor_fields(finalized, quote_text)
+    if compressor_items(finalized):
+        normalize_compressor_pricing(finalized, quote_text)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
     ensure_pricing_required_action(finalized.decision)
@@ -5846,6 +5880,13 @@ def finalize_customer_analysis(
                                    primary_equipment_matching_assessment(finalized), duct_items(finalized))
     present_failed_commissioning(finalized, quote_text)
     compose_refrigerant_summary(finalized, quote_text)
+    compose_compressor_summary(finalized)
+    if partial_voltage_drop(finalized):
+        for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
+                     "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line"):
+            setattr(finalized, name, customer_compressor_text(getattr(finalized, name)))
+        for name in ("good_signs", "red_flags", "contractor_questions"):
+            setattr(finalized, name, [customer_compressor_text(s) for s in getattr(finalized, name)])
     # Transport metadata is not a customer finding. Leave structured evidence intact.
     for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
                  "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line",
@@ -5950,6 +5991,10 @@ def build_report_html(analysis, quote_count=None):
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     sizing_paragraphs = system_sizing_report_paragraphs(analysis)
+    compressor_section = (
+        '<div class="card"><h2>What Does the Compressor Evidence Show?</h2>'
+        + ''.join(f'<p>{esc(p)}</p>' for p in compressor_paragraphs(analysis)) + '</div>'
+    ) if compressor_items(analysis) else ""
     refrigerant_section = (
         '<div class="card"><h2>What Does the Refrigerant Evidence Show?</h2>'
         + ''.join(f'<p>{esc(p)}</p>' for p in refrigerant_paragraphs(analysis)) + '</div>'
@@ -6246,6 +6291,7 @@ ul {{
     {sizing_section}
     {duct_section}
     {startup_section}
+    {compressor_section}
     {refrigerant_section}
 
     {section(

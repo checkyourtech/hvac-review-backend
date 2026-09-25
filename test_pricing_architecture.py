@@ -9,11 +9,22 @@ import main
 from pricing import (
     MarketPriceContext, MarketPriceStatus, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text,
+    compressor_category_breakdown,
 )
 from test_system_sizing import analysis, domain_items
 
 
 class PricingArchitectureTests(unittest.TestCase):
+    def test_compressor_categories_do_not_require_internal_job_costing(self):
+        text = "Total repair price: $3,600\nCompressor: $1,900\nLabor: $1,100\nRefrigerant: $350\nMaterials: $250"
+        review = compressor_category_breakdown(text)
+        self.assertIn("$3,600", review)
+        self.assertNotIn("market", review)
+        for suffix in ("\nAdditional fee: $100", "\nRefrigerant allowance may change", "\nOptional service: $100"):
+            self.assertIsNone(compressor_category_breakdown(text + suffix))
+        self.assertIsNone(compressor_category_breakdown(text.replace("$3,600", "$3,800")))
+        self.assertIsNone(compressor_category_breakdown("QUOTE 1\n" + text + "\nQUOTE 2\n" + text))
+
     def test_old_payload_and_safe_defaults(self):
         payload = analysis().model_dump()
         payload.pop('price_facts')

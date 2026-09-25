@@ -1,0 +1,9 @@
+RESIDENTIAL COMPRESSOR REPAIR PROPOSAL
+Compressor C1 input voltage measured 242 V within the submitted equipment range.
+With compressor leads isolated, testing directly at compressor terminals confirmed a short to ground.
+Proposed repair: Replace the compressor in the existing system.
+Scope includes charge recovery, compressor and filter-drier replacement, pressure testing, evacuation and restoration of the specified charge.
+Startup included. No startup documentation is promised.
+Total price: $4,950.
+Compressor and materials: $3,000.
+Labor: $1,950.

@@ -1,0 +1,10 @@
+RESIDENTIAL COMPONENT REPAIR PROPOSAL
+Run capacitor rated 45 microfarads +/-6% measured 18 microfarads.
+The contractor claims the failed capacitor damaged the compressor.
+No compressor winding, ground, current, or operational test result is provided.
+Proposed repair: Replace the capacitor and replace the compressor.
+Scope includes charge recovery, compressor and filter-drier replacement, pressure testing, evacuation and restoration of the specified charge.
+Startup plan: Follow the manufacturer startup procedure and document final operating readings.
+Total price: $4,950.
+Compressor, capacitor and materials: $3,000.
+Labor: $1,950.

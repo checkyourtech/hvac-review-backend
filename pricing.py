@@ -105,6 +105,70 @@ def evaluate_market_price(
     return MarketPriceContext(project_zip=project_zip, market_area=market_area)
 
 
+def compressor_category_breakdown(text: str) -> Optional[str]:
+    """Accept explicit, nonoverlapping repair categories, not internal job costing.
+
+    Unlike general price facts (which may overlap), these two bounded layouts have
+    one total and disjoint fixed charges. Abstain on options, allowances or extras.
+    """
+    facts = extract_quote_price_facts(text)
+    if len(facts) != 1 or re.search(
+        r"allowance|per (?:hour|pound)|price to be determined|additional.{0,30}(?:charge|fee)|"
+        r"(?:charge|fee|tax).{0,25}(?:excluded|not included|unknown)|optional|alternative", text, re.I
+    ):
+        return None
+    layouts = (
+        {"total repair price", "compressor", "labor", "refrigerant", "materials"},
+        {"total repair price", "compressor and materials", "labor"},
+    )
+    values = {}
+    for item in facts[0].items:
+        label = item.label.lower().strip()
+        if label == "total price":
+            label = "total repair price"
+        if label in values or item.currency != "USD":
+            return None
+        values[label] = item.amount
+    if set(values) not in layouts or any(v < 0 for v in values.values()):
+        return None
+    total = values.pop("total repair price")
+    if round(sum(values.values()), 2) != round(total, 2):
+        return None
+    def money(amount):
+        return f"${amount:,.0f}" if amount == int(amount) else f"${amount:,.2f}"
+    parts = [f"{money(amount)} for {label}" for label, amount in values.items()]
+    detail = ", ".join(parts[:-1]) + ", and " + parts[-1]
+    return f"The {money(total)} repair price is broken into {detail}. That gives a clear breakdown of the quoted repair cost."
+
+
+def unnecessary_cost_detail(value: str) -> bool:
+    return bool(re.search(r"itemiz|breakdown|markup|labor hours|hourly labor|labor rate|internal (?:equipment )?cost|profit|wholesale|every fitting|consumable|pricing transparency|pricing (?:is )?(?:limited|insufficient|unclear)", value, re.I))
+
+
+def normalize_compressor_pricing(analysis, text: str) -> None:
+    """Source-calibrate meaningful repair itemization before canonical verdicts."""
+    review = compressor_category_breakdown(text)
+    if not review:
+        return
+    concerns = [*analysis.decision.required_actions, *analysis.decision.verdict_reasons]
+    # Do not erase an independent pricing approval issue or unresolved charge.
+    if any(re.search(r"price|pricing|cost|fee|charge|tax|payment", s, re.I) and not unnecessary_cost_detail(s)
+           for s in concerns):
+        return
+    if re.search(r"(?:additional|undisclosed|unknown|excluded).{0,30}(?:fees?|charges?|tax)|"
+                 r"(?:fees?|charges?|tax).{0,30}(?:unclear|unknown|excluded|not included)", " ".join([analysis.pricing_review, *concerns]), re.I):
+        return
+    analysis.decision.pricing_transparency = "ADEQUATE"
+    for name in ("required_actions", "verdict_reasons"):
+        setattr(analysis.decision, name, [s for s in getattr(analysis.decision, name) if not unnecessary_cost_detail(s)])
+    for name in ("missing_information", "installation_concerns"):
+        setattr(analysis, name, " ".join(s for s in re.split(r"(?<=[.!?])\s+", getattr(analysis, name))
+                                         if not unnecessary_cost_detail(s)))
+    analysis.pricing_review = review
+    analysis.good_signs = [s for s in analysis.good_signs if not re.search(r"pric|cost|breakdown|itemiz|markup", s, re.I)]
+    analysis.good_signs.append("The quoted repair cost is separated into meaningful categories.")
+
+
 PRICING_MARKET_RULES = """
 PRICING FACTS AND REGIONAL PRICE FIREWALL
 Keep quote clarity separate from regional price comparisons. No verified regional

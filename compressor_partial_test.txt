@@ -1,0 +1,10 @@
+RESIDENTIAL COMPRESSOR REPAIR PROPOSAL
+Compressor C1 intermittently fails to start and hums before its overload opens.
+Compressor input voltage drops during the observed starting attempt; the source of the drop has not been isolated.
+The contractor is considering compressor replacement but has not separated the starting/input issue from a compressor fault.
+Proposed repair if approved: Replace the compressor in the existing system.
+Scope includes charge recovery, compressor and filter-drier replacement, pressure testing, evacuation and restoration of the specified charge.
+Startup plan: Follow the manufacturer startup procedure and document final operating readings.
+Total price: $4,950.
+Compressor and materials: $3,000.
+Labor: $1,950.

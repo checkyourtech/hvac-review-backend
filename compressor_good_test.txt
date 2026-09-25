@@ -1,0 +1,13 @@
+RESIDENTIAL COMPRESSOR REPAIR PROPOSAL
+Existing outdoor unit compressor C1.
+Supply voltage measured at compressor input: 242 V, within the submitted 208-253 V equipment range.
+Run capacitor measured 44.7 microfarads against its 45 microfarad +/-6% label.
+With compressor leads isolated, testing directly at compressor terminals confirmed a short to ground.
+Diagnosis: Compressor C1 electrical winding failure.
+Proposed repair: Replace the compressor in the existing system.
+Repair scope includes recovery of the existing charge, compressor and filter-drier replacement, pressure testing, evacuation and restoration of the specified charge.
+Startup plan: Follow the manufacturer startup procedure and document final operating readings.
+Total repair price: $4,950.
+Compressor and materials: $3,000.
+Labor: $1,950.
+Compressor parts warranty: 5 years. Labor warranty: 1 year.
