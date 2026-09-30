@@ -29,9 +29,25 @@ class CommissioningTests(unittest.TestCase):
         for text in ("Full-system replacement", "New installation", "Replace furnace",
                      "Install heat pump", "Ductless mini-split installation", "Ducted mini-split installation",
                      "Package unit replacement", "Install VRF system", "Multi-zone installation",
-                     "Major control conversion", "Compressor replacement"):
+                     "Major control conversion", "Compressor replacement. Startup plan included."):
             with self.subTest(text=text):
                 self.assertTrue(commissioning_required(text))
+
+    def test_isolated_compressor_does_not_require_whole_system_plan(self):
+        for text in ("Compressor replacement", "Replace the compressor. Verify operation after repair."):
+            self.assertFalse(commissioning_required(text))
+        for text in ("Replace compressor. Startup testing is excluded.",
+                     "Replace compressor. Completed startup record: required safety check failed.",
+                     "Replace compressor. Install new heat pump.",
+                     "Replace compressor or replace complete HVAC system."):
+            self.assertTrue(commissioning_required(text), text)
+
+    def test_independent_compressor_startup_assessment_is_preserved(self):
+        from test_technical_support_derivation import analysis_with, assessment
+        original = analysis_with([assessment("CONTRADICTORY", "UNSUPPORTED", subject=COMMISSIONING_SUBJECT,
+            contradictions=["Required safety verification failed."])])
+        final = main.finalize_customer_analysis(original, "Replace compressor.", 1)
+        self.assertEqual(commissioning_items(final)[0].scope_support, "UNSUPPORTED")
 
     def test_minor_repairs(self):
         for text in ("Replace capacitor", "Replace contactor", "Replace furnace igniter",

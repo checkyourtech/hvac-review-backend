@@ -1,6 +1,7 @@
 """Quote-only capacity evidence helpers; no equipment lookup or sizing calculator."""
 import re
 from decimal import Decimal
+from evidence_sufficiency import proposed_work_facts
 
 SIZING_SUBJECT = "Capacity justification for proposed HVAC system"
 
@@ -115,6 +116,11 @@ def sizing_backup_text(value):
 
 def sizing_required(quote_text, classification=None):
     """Conservative completeness routing from submitted scope or classified major units."""
+    work = proposed_work_facts(quote_text)
+    # A classifier label cannot turn an explicitly scope-only component quote
+    # into a capacity-selection project. Additional source facts abstain here.
+    if work and work.scope_only and work.component != "complete HVAC system":
+        return False
     if classification is not None:
         if "system_sizing" in [getattr(m, "value", m) for m in classification.modules_required]:
             return True

@@ -4,6 +4,7 @@ No thermodynamic limits are supplied here. Submitted measurements and interprete
 results are evidence; a procedure name, proposed test or refrigerant type is not.
 """
 import re
+from evidence_sufficiency import proposed_work_facts
 
 CONDITION = "Refrigerant condition supporting proposed work"
 CAUSE = "Leak / refrigerant-loss cause"
@@ -140,6 +141,11 @@ def completed_fact(s):
 def source_facts(text):
     """Abstain without explicit results, interpretation and relevant proposed work."""
     lines = evidence_lines(text)
+    proposed = proposed_work_facts(text)
+    if proposed and proposed.scope_only and proposed.component == "evaporator coil":
+        return dict(subject=COIL, diagnostic_evidence_status="ABSENT", scope_support="UNSUPPORTED",
+                    documented_evidence=[], contradictions=[],
+                    material_gaps=["The quote does not provide findings showing that the evaporator coil is leaking or has otherwise failed."])
     diagnostic = [s for s in lines if completed_fact(s)]
     joined = " ".join(diagnostic)
     source = " ".join(lines)
@@ -298,6 +304,9 @@ def refrigerant_paragraphs(analysis):
     for item in refrigerant_items(analysis):
         kind = subject_kind(item.subject)
         if item.scope_support == "UNSUPPORTED" or item.diagnostic_evidence_status in {"ABSENT", "CONTRADICTORY"}:
+            if kind == COIL and item.diagnostic_evidence_status == "ABSENT" and not item.documented_evidence:
+                result.append("The quote does not include findings showing that the coil is leaking or has otherwise failed.")
+                continue
             mismatch = coil_location_conflict("\n".join(item.documented_evidence + item.contradictions))
             result.append((mismatch + " That disconnect is why the proposed refrigerant repair is not supported yet.") if mismatch else
                           "The proposed refrigerant work is not supported by the submitted findings. " + " ".join(item.contradictions or item.material_gaps or [gap_for(kind)]))

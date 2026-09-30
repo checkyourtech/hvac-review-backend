@@ -21,6 +21,7 @@ from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
     normalize_compressor_pricing,
+    normalize_named_work_total,
 )
 from system_sizing import (
     SIZING_SUBJECT, SYSTEM_SIZING_RULES, sizing_text, sizing_required,
@@ -47,7 +48,7 @@ from refrigerant_system import (
     diagnostic_only_scope,
 )
 from commissioning import (
-    COMMISSIONING_RULES, commissioning_required, commissioning_text, commissioning_question,
+    COMMISSIONING_RULES, commissioning_required, commissioning_text, commissioning_question, bare_component_scope,
     commissioning_items, normalize_commissioning_assessments,
     finalize_commissioning_fields, commissioning_paragraphs, compose_commissioning_summary,
     present_supported_commissioning, present_partial_commissioning, customer_source_text,
@@ -59,6 +60,12 @@ from compressor import (
     compressor_paragraphs, compose_compressor_summary,
     partial_voltage_drop, customer_compressor_text,
     compressor_normal_after_start_repair,
+    compressor_source_facts,
+)
+from evidence_sufficiency import (
+    EVIDENCE_SUFFICIENCY_RULES, proposed_work_facts, discard_ungrounded_scope_only_claims,
+    ensure_primary_evidence_assessment, prepare_scope_only_customer_fields,
+    scope_only_questions, summarize_scope_only,
 )
 
 load_dotenv()
@@ -456,6 +463,12 @@ An independent compressor-failure claim must actually be part of the proposal.
 
 Also include "commissioning" when the proposed repair includes refrigerant recovery, pressure testing, evacuation, vacuum targets, charging, or startup procedures.
 
+For isolated compressor work, ordinary repair-closeout activities alone do not
+establish a separate whole-system commissioning issue. Do not request an undocumented
+commissioning plan solely because the repaired compressor will need to be restarted.
+Retain commissioning when independently raised by a startup plan, exclusion, failed
+result, or broader equipment installation/changeout.
+
 Include "warranty" whenever any manufacturer or contractor warranty is mentioned or should reasonably be checked for a major repair.
 
 Include "repair_vs_replace" for major repairs such as compressor, heat exchanger, evaporator coil, condenser coil, or other high-cost repairs where system age and repair economics matter.
@@ -519,6 +532,9 @@ Classify the following HVAC quote or quotes:
     )
 
     classification = completion.choices[0].message.parsed
+    source_work = proposed_work_facts(all_quotes_text)
+    if source_work and AnalysisModule(source_work.module) not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule(source_work.module))
     if compressor_required(all_quotes_text, classification) and AnalysisModule.COMPRESSOR not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMPRESSOR)
     elif all_quotes_text.strip() and not compressor_required(all_quotes_text, classification):
@@ -531,10 +547,14 @@ Classify the following HVAC quote or quotes:
         classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.REFRIGERANT_SYSTEM]
     if commissioning_required(all_quotes_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
+    elif bare_component_scope(all_quotes_text):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.COMMISSIONING]
     if duct_required(all_quotes_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(all_quotes_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
+    elif not sizing_required(all_quotes_text, classification):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.SYSTEM_SIZING]
     return classification
 
 LEGACY_ANALYSIS_KNOWLEDGE = {
@@ -2808,6 +2828,9 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    source_work = proposed_work_facts(quote_text)
+    if source_work and AnalysisModule(source_work.module) not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule(source_work.module))
     if compressor_required(quote_text, classification) and AnalysisModule.COMPRESSOR not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMPRESSOR)
     elif quote_text.strip() and not compressor_required(quote_text, classification):
@@ -2816,13 +2839,18 @@ def get_analysis_knowledge(
         classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
     if commissioning_required(quote_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
+    elif bare_component_scope(quote_text):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.COMMISSIONING]
     if duct_required(quote_text, classification) and AnalysisModule.DUCT_AIRFLOW not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.DUCT_AIRFLOW)
     if sizing_required(quote_text, classification) and AnalysisModule.SYSTEM_SIZING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
+    elif not sizing_required(quote_text, classification):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.SYSTEM_SIZING]
     selected_modules = [
         SECTION_QUALITY_RULES.strip(),
         UNIVERSAL_WARRANTY_RULES.strip(),
+        EVIDENCE_SUFFICIENCY_RULES.strip(),
     ]
     selected_names = [
         module.value if isinstance(module, AnalysisModule) else str(module)
@@ -4996,6 +5024,9 @@ def build_contractor_questions(
     quote_text: str = "",
 ) -> List[str]:
     """Create the canonical categorized question list for the finalized model."""
+    priority_questions = scope_only_questions(analysis, proposed_work_facts(quote_text))
+    if priority_questions is not None:
+        return priority_questions
     questions_by_category = {}
     seen = set()
 
@@ -5623,6 +5654,11 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+    source_work = proposed_work_facts(quote_text)
+    source_compressor = (compressor_source_facts(quote_text) if source_work and source_work.component == "compressor" else None)
+    direct_evidence = (source_compressor["documented_evidence"] if source_compressor
+                       and source_compressor["diagnostic_evidence_status"] == "CONFIRMED" else [])
+    discard_ungrounded_scope_only_claims(finalized, source_work, direct_evidence)
 
     calibrate_partial_replacement_basis(finalized, quote_text)
     ensure_elective_replacement_basis_assessment(finalized, quote_text)
@@ -5633,6 +5669,7 @@ def finalize_customer_analysis(
     normalize_compressor_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_refrigerant_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
+    ensure_primary_evidence_assessment(finalized, source_work, TechnicalEvidenceAssessment)
 
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
@@ -5680,6 +5717,8 @@ def finalize_customer_analysis(
     finalize_compressor_fields(finalized, quote_text)
     if compressor_items(finalized):
         normalize_compressor_pricing(finalized, quote_text)
+    prepare_scope_only_customer_fields(finalized, source_work)
+    normalize_named_work_total(finalized, source_work)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
     ensure_pricing_required_action(finalized.decision)
@@ -5881,6 +5920,7 @@ def finalize_customer_analysis(
     present_failed_commissioning(finalized, quote_text)
     compose_refrigerant_summary(finalized, quote_text)
     compose_compressor_summary(finalized)
+    summarize_scope_only(finalized, source_work)
     if partial_voltage_drop(finalized):
         for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
                      "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line"):
@@ -5899,6 +5939,17 @@ def finalize_customer_analysis(
     if (not str(finalized.project_overview or "").strip()
             or finalized.project_overview == "The proposal includes HVAC equipment work."):
         finalized.project_overview = factual_review_summary(quote_text)
+    # Qualify the generic no-gap fallback when a separate pricing issue still
+    # prevents approval. Preserve specific missing-evidence findings verbatim.
+    if (finalized.decision.technical_support == "SUPPORTED"
+            and finalized.decision.verdict == "REVIEW_BEFORE_APPROVING"
+            and finalized.decision.pricing_transparency in {"LIMITED", "ABSENT"}
+            and finalized.missing_information == (
+                "No important missing information was identified that appears likely to "
+                "change the recommendation.")):
+        finalized.missing_information = (
+            "No important technical information is missing from the submitted diagnosis."
+        )
     return finalized
 
 

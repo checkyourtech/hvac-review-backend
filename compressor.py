@@ -218,6 +218,8 @@ def compressor_paragraphs(analysis):
     if not items:
         return []
     evidence = list(dict.fromkeys(s for a in items for s in a.documented_evidence))
+    if not evidence and all(a.diagnostic_evidence_status == "ABSENT" for a in items):
+        return ["The proposal does not include compressor test results that show the compressor has failed."]
     if compressor_normal_after_start_repair(analysis):
         return [" ".join(customer_compressor_text(s) for s in evidence)
                 + " The submitted findings support the failed starting capacitor, but they do not show that the compressor itself still needs replacement."]

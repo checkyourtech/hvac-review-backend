@@ -1,5 +1,6 @@
 """Proposal-stage startup review; numerical results remain owned by domain modules."""
 import re
+from evidence_sufficiency import proposed_work_facts
 
 COMMISSIONING_SUBJECT = "Startup and commissioning plan for proposed equipment"
 COMMISSIONING_RULES = """
@@ -59,7 +60,17 @@ def commissioning_text(value):
     return bool(re.search(r"\b(?:start[- ]?up|commission\w*|system checkout|final operational verification|post[- ]installation testing|final performance checks)\b", text))
 
 
+def bare_component_scope(text):
+    """Bounded source-only scope; any additional startup facts make us abstain."""
+    work = proposed_work_facts(text)
+    return bool(work and work.scope_only and work.component != "complete HVAC system")
+
+
 def commissioning_required(text, classification=None):
+    if bare_component_scope(text):
+        return False
+    if isolated_compressor_repair(text):
+        return False
     if isolated_coil_repair(text):
         return False
     # Source scope, not merely an equipment mention or a classifier module name.
@@ -76,6 +87,22 @@ def commissioning_required(text, classification=None):
         if re.search(r"\bnew (?:HVAC |system )?installation\b", line, re.I):
             return True
     return False
+
+
+def isolated_compressor_repair(text):
+    """Restarting a repaired component alone is not whole-system commissioning."""
+    compressor_work = re.search(r"compressor (?:replacement|repair)|(?:replace|repair) (?:the )?compressor", text, re.I)
+    if not compressor_work:
+        return False
+    independent_scope = re.search(
+        r"start[- ]?up|commission|system checkout|completed.*(?:verification|record)|"
+        r"(?:required|failed|excluded).{0,45}(?:verification|safety|check)|"
+        r"(?:verification|safety|check).{0,45}(?:required|failed|excluded)|"
+        r"new installation|(?:full|complete|entire).{0,20}system.{0,20}(?:replace|installation)|"
+        r"(?:replace|install).{0,20}(?:full|complete|entire).{0,20}system|"
+        r"(?:replace|install) (?:the |new |existing )*(?:furnace|air.handler|heat.pump|condenser|HVAC system)|"
+        r"(?:furnace|air.handler|heat.pump|condenser|HVAC system) (?:replacement|installation)", text, re.I)
+    return not independent_scope
 
 
 def isolated_coil_repair(text):
@@ -132,6 +159,18 @@ def source_plan(text):
 
 def normalize_commissioning_assessments(analysis, text, assessment_type, classification=None):
     items = commissioning_items(analysis)
+    if bare_component_scope(text):
+        # No independent startup evidence exists in this fully recognized source.
+        # Missing repair details alone do not establish a commissioning domain.
+        analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
+        return
+    if isolated_compressor_repair(text):
+        independent = [a for a in items if a.contradictions or any(
+            not re.search(r"not (?:documented|provided|described)|missing|absent|not clearly", e, re.I)
+            for e in a.documented_evidence)]
+        if not independent:
+            analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
+            return
     if isolated_coil_repair(text) and not any(a.contradictions or a.material_gaps for a in items):
         analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
         return

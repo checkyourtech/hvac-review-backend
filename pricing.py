@@ -105,6 +105,16 @@ def evaluate_market_price(
     return MarketPriceContext(project_zip=project_zip, market_area=market_area)
 
 
+def normalize_named_work_total(analysis, source_work):
+    """A recognized single repair total is separate from diagnostic evidence."""
+    if source_work is None:
+        return
+    analysis.decision.pricing_transparency = "LIMITED"
+    analysis.pricing_review = (
+        f"The quoted total is {source_work.amount}. It does not show how the price is divided "
+        "or what is included. Ask what the total covers before approving the work.")
+
+
 def compressor_category_breakdown(text: str) -> Optional[str]:
     """Accept explicit, nonoverlapping repair categories, not internal job costing.
 
