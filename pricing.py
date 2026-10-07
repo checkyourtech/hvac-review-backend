@@ -105,14 +105,23 @@ def evaluate_market_price(
     return MarketPriceContext(project_zip=project_zip, market_area=market_area)
 
 
+MAJOR_CHARGE_ITEMIZATION_REQUEST = (
+    "Ask for an itemized breakdown of the parts, labor, and other major charges before approving the work."
+)
+
+
+def lump_sum_price_review(amount):
+    """Customer-facing copy only; no pricing classification or internal costing."""
+    return (f"The quoted total is {amount}, but the quote does not show how that amount is divided. "
+            + MAJOR_CHARGE_ITEMIZATION_REQUEST)
+
+
 def normalize_named_work_total(analysis, source_work):
     """A recognized single repair total is separate from diagnostic evidence."""
     if source_work is None:
         return
     analysis.decision.pricing_transparency = "LIMITED"
-    analysis.pricing_review = (
-        f"The quoted total is {source_work.amount}. It does not show how the price is divided "
-        "or what is included. Ask what the total covers before approving the work.")
+    analysis.pricing_review = lump_sum_price_review(source_work.amount)
 
 
 def compressor_category_breakdown(text: str) -> Optional[str]:

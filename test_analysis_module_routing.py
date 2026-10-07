@@ -79,9 +79,9 @@ class AnalysisModuleRoutingTests(unittest.TestCase):
             classification_for(AnalysisModule.FURNACE_COMBUSTION)
         )
         self.assertIn("INDUCER MOTOR / COMBUSTION DRAFT REPAIRS", knowledge)
-        self.assertIn("PRESSURE SWITCH / DRAFT PROVING REPAIRS", knowledge)
-        self.assertIn("HOT SURFACE IGNITER / IGNITION REPAIRS", knowledge)
-        self.assertIn("FLAME SENSOR / FLAME PROVING REPAIRS", knowledge)
+        self.assertIn("belong to ELECTRICAL_CONTROLS", knowledge)
+        self.assertNotIn("HOT SURFACE IGNITER / IGNITION REPAIRS", knowledge)
+        self.assertNotIn("FLAME SENSOR / FLAME PROVING REPAIRS", knowledge)
 
     def test_heat_exchanger_resolves_as_independent_module(self):
         knowledge = get_analysis_knowledge(

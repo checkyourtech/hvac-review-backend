@@ -135,6 +135,44 @@ class SizingRoutingTests(SizingOnlyTests):
             with self.subTest(name=name):
                 self.assertFalse(sizing_required(Path(name).read_text()))
 
+    def test_documented_component_repair_overrides_classifier_sizing_request(self):
+        c = main.QuoteClassification(quote_type="replacement", system_type="furnace",
+            primary_scope="Control board replacement", replacement_components=["furnace"],
+            modules_required=[main.AnalysisModule.SYSTEM_SIZING])
+        for text in (
+            Path("electrical_controls_board_good_test.txt").read_text(),
+            "Replace furnace control board. Board power confirmed present.",
+            "Install a new control board. The expected board output is absent.",
+            "Replace furnace pressure switch. Pressure switch fault code reported.",
+            "Replace heat pump defrost board. Intermittent board operation reported.",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(sizing_required(text, c))
+                self.assertNotIn(SYSTEM_SIZING_RULES.strip(), main.get_analysis_knowledge(c, text))
+        self.assertEqual(c.modules_required, [main.AnalysisModule.SYSTEM_SIZING])
+
+    def test_ac_alias_must_match_a_whole_word_in_classified_scope(self):
+        for scope in ("Control board replacement", "Replace capacitor", "New control board installation"):
+            c = main.QuoteClassification(quote_type="replacement", system_type="unknown",
+                                        primary_scope=scope, modules_required=[])
+            self.assertFalse(sizing_required("", c), scope)
+        c.primary_scope = "AC replacement"
+        self.assertTrue(sizing_required("", c))
+
+    def test_component_repair_does_not_hide_independent_capacity_scope(self):
+        component = Path("electrical_controls_board_good_test.txt").read_text()
+        for scope in ("Review system capacity for a remodel; load calculation pending.",
+                      "Replace the furnace.", "Install a new heat pump."):
+            text = component + "\n" + scope
+            with self.subTest(scope=scope):
+                self.assertTrue(sizing_required(text))
+                raw = analysis(sizing("INCOMPLETE", "PARTIALLY_DEFINED", evidence=[]))
+                main.normalize_system_sizing_assessments(raw, text)
+                self.assertEqual(len(main.sizing_assessments(raw)), 1)
+        self.assertTrue(sizing_required("Replace furnace and repair control board."))
+        self.assertTrue(sizing_required("Replace control board; install a new heat pump."))
+        self.assertTrue(sizing_required("QUOTE 1\n" + component + "\nQUOTE 2\nFurnace replacement."))
+
 
 class SizingCalibrationTests(SizingOnlyTests):
     def finalize(self, item, quote=""):

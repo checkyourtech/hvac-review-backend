@@ -1,0 +1,27 @@
+Customer reports air conditioner stopped cooling.
+
+Technician found the outdoor unit not running.
+
+Technician tested the dual run capacitor and found it failed.
+
+Capacitor rating:
+45/5 MFD
+
+Measured capacitance:
+Compressor/HERM: 18.6 MFD
+Fan: 2.1 MFD
+
+Technician states the failed capacitor indicates the compressor has likely been damaged and recommends replacing both the capacitor and compressor.
+
+No compressor winding resistance readings provided.
+No compressor-to-ground test results provided.
+No compressor amperage readings provided.
+No attempt to install a known-good capacitor or otherwise test compressor operation after correcting the failed capacitor.
+
+Recommended repair:
+- replace dual run capacitor
+- replace compressor
+- evacuate system
+- recharge system with R-410A
+
+Total repair price: $4,850

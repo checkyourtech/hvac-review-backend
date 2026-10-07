@@ -5,6 +5,7 @@ belongs to a domain module. This does not derive technical support or verdicts.
 """
 import re
 from dataclasses import dataclass
+from pricing import lump_sum_price_review
 
 
 EVIDENCE_SUFFICIENCY_RULES = """
@@ -17,11 +18,22 @@ Strong direct evidence can support a very short quote; never use document length
 For system replacement, the reason for replacement belongs to replacement basis,
 unless an elective intent is actually documented. Prioritize that question over a
 checklist of omitted domains. A sole repair total gives LIMITED pricing transparency;
-ask what is included, not for profit, markup, hourly rates or wholesale invoices.
+ask for an itemized breakdown of parts, labor and other major charges, not for profit,
+markup, hourly rates, wholesale invoices or every incidental fitting or material.
 Keep technical evidence separate from pricing and market comparisons.
 """
 
 OWNERS = {
+    "control board": ("electrical_controls", "Electrical control evidence: control board",
+                      "What input and output testing showed that the control board itself has failed?"),
+    "capacitor": ("electrical_controls", "Electrical control evidence: capacitor",
+                  "What capacitance did the capacitor measure, and what tolerance is listed on it?"),
+    "pressure switch": ("electrical_controls", "Electrical control evidence: pressure switch",
+                        "What testing showed that the pressure switch itself failed rather than another condition keeping it open?"),
+    "igniter": ("electrical_controls", "Electrical control evidence: igniter",
+                "What test showed that the igniter itself has failed?"),
+    "flame sensor": ("electrical_controls", "Electrical control evidence: flame sensor",
+                    "What flame-signal reading or other test showed that the flame sensor needs replacement?"),
     "compressor": ("compressor", "Claimed compressor failure",
                    "What test results show that the compressor has failed and needs replacement?"),
     "blower motor": ("motors", "Claimed blower motor failure",
@@ -75,8 +87,8 @@ def proposed_work_facts(text):
         amounts.extend(m.replace(" ", "") for m in money)
         s = re.sub(r"\$\s*\d[\d,]*(?:\.\d{2})?", "", s).strip(" \t—–-:;.•")
         s = re.sub(r"^(?:proposed work|proposed repair|recommended repair|scope):\s*", "", s, flags=re.I)
-        work = re.fullmatch(r"(?:replace (?:the |failed )?(compressor|blower motor|evaporator coil|(?:complete )?HVAC system)|"
-                            r"(compressor|blower motor|evaporator coil|(?:complete )?HVAC system) replacement)", s, re.I)
+        components_pattern = r"compressor|blower motor|evaporator coil|(?:complete )?HVAC system|control board|capacitor|pressure switch|igniter|flame sensor"
+        work = re.fullmatch(r"(?:replace (?:the |failed )?(" + components_pattern + r")|(" + components_pattern + r") replacement)", s, re.I)
         if work:
             component = (work.group(1) or work.group(2)).lower()
             components.append("complete HVAC system" if "hvac system" in component else component)
@@ -143,7 +155,7 @@ def prepare_scope_only_customer_fields(analysis, facts):
     analysis.equipment_analysis = f"The quote names the {component} replacement, but does not include findings showing why it is needed."
     analysis.missing_information = f"The quote does not show what findings support replacing the {component}."
     analysis.installation_concerns = f"The listed work is {component} replacement; further repair or installation steps are not described."
-    analysis.pricing_review = f"The quoted total is {facts.amount}. It does not show how the price is divided or what is included. Ask what the total covers before approving the work."
+    analysis.pricing_review = lump_sum_price_review(facts.amount)
     analysis.red_flags = [f"Replacement of the {component} is recommended without documented findings showing why it is needed."]
     analysis.good_signs = []
     analysis.decision.required_actions = [f"Ask for the findings supporting {component} replacement before approving the work."]

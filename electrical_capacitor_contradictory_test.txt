@@ -1,0 +1,6 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace 45 µF run capacitor.
+Capacitor rating: 45 µF ±6%.
+Measured capacitance: 44.8 µF.
+Contractor states the capacitor has failed and recommends replacement.
+Total repair price: $650.

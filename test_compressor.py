@@ -161,10 +161,10 @@ class CompressorTests(unittest.TestCase):
     def test_capacitor_does_not_rescue_compressor(self):
         final = self.final("capacitor_boundary")
         self.check_case(final, "capacitor_boundary")
-        capacitor = next(a for a in final.technical_assessments if a.subject == "Run capacitor failure")
+        capacitor = next(a for a in main.electrical_items(final) if "capacitor" in a.subject)
         self.assertEqual(capacitor.diagnostic_evidence_status, "CONFIRMED")
         self.assertEqual(len(final.contractor_questions), 1)
-        self.assertIn("capacitor measurement", " ".join(final.good_signs))
+        self.assertIn("measured 18 microfarads", " ".join(final.good_signs))
 
     def test_other_domain_gap_does_not_rewrite_compressor(self):
         final = self.final("cross_module")

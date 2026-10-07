@@ -114,6 +114,19 @@ Installation materials: $200'''
         self.assertNotIn('allocation of costs', text.lower())
         self.assertNotIn('transparency is adequate', text.lower())
 
+    def test_named_repair_totals_share_major_charge_itemization_copy(self):
+        for name in ("bare_bones_compressor", "bare_bones_blower_motor", "bare_bones_evaporator_coil",
+                     "minimal_but_sufficient_compressor"):
+            with self.subTest(fixture=name):
+                quote = Path(name + "_test.txt").read_text()
+                final = main.finalize_customer_analysis(analysis(pricing="LIMITED"), quote, 1)
+                self.assertEqual(final.decision.pricing_transparency, "LIMITED")
+                self.assertIn("itemized breakdown of the parts, labor, and other major charges", final.pricing_review)
+                self.assertEqual(sum(main.contractor_question_category(q) == "pricing" for q in final.contractor_questions), 1)
+                self.assertNotIn("Ask what the total covers", final.pricing_review)
+                for forbidden in ("internal cost", "markup", "wholesale", "hourly labor", "every nut", "every fitting"):
+                    self.assertNotIn(forbidden, final.pricing_review.lower())
+
     def test_request_location_and_source_facts_reach_api_and_email_object(self):
         raw = analysis(pricing='LIMITED')
         raw.price_facts = extract_quote_price_facts('Total: $99999')

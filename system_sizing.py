@@ -90,6 +90,7 @@ coverage. Do not ask a Manual J checklist. Pricing is separate. Use existing rep
 
 # These patterns identify the system, not internal repair components or duct dimensions.
 _MAJOR = r"(?:hvac(?: system)?|complete system|full system|entire system|existing system|new system|heat[- ]pump(?: system)?|furnace|air conditioner|air conditioning(?: system)?|ac(?: system)?|condenser|outdoor unit|air handler|packaged?(?: hvac)?(?: system| unit)|mini[- ]split|ductless(?: system)?)"
+_REPAIR_COMPONENT = r"(?:compressor|(?:(?:dual |run |start |starting )*)capacitor|contactor|igniter|(?:control|circuit|defrost) board|flame sensor|thermostat|sensor|(?:blower |condenser fan |fan |inducer )?motor|coil|valve|filter|drain|(?:pressure |limit |high limit |safety )?switch|relay|transformer|sequencer)"
 
 
 def sizing_text(value):
@@ -116,18 +117,43 @@ def sizing_backup_text(value):
 
 def sizing_required(quote_text, classification=None):
     """Conservative completeness routing from submitted scope or classified major units."""
-    work = proposed_work_facts(quote_text)
-    # A classifier label cannot turn an explicitly scope-only component quote
-    # into a capacity-selection project. Additional source facts abstain here.
-    if work and work.scope_only and work.component != "complete HVAC system":
+    if source_requires_sizing(quote_text):
+        return True
+    # Diagnostic measurements do not turn component work into capacity selection.
+    # Source-backed component scope takes precedence over a mistaken AI module,
+    # quote-type label, or replacement-component list.
+    if component_repair_without_sizing_scope(quote_text):
         return False
     if classification is not None:
         if "system_sizing" in [getattr(m, "value", m) for m in classification.modules_required]:
             return True
         if any(re.fullmatch(_MAJOR, part.strip().lower()) for part in classification.replacement_components):
             return True
-        if classification.quote_type in {"replacement", "installation"} and re.search(_MAJOR, classification.primary_scope.lower()):
+        if classification.quote_type in {"replacement", "installation"} and re.search(r"\b" + _MAJOR + r"\b", classification.primary_scope.lower()):
             return True
+    return False
+
+
+def component_repair_without_sizing_scope(quote_text):
+    """Affirmative single-quote repair scope with no submitted capacity issue."""
+    if not quote_text.strip() or len(re.findall(r"(?m)^\s*QUOTE \d+", quote_text)) > 1:
+        return False
+    if source_requires_sizing(quote_text):
+        return False
+    work = proposed_work_facts(quote_text)
+    if work and work.component != "complete HVAC system":
+        return True
+    for line in quote_text.lower().replace("-", " ").splitlines():
+        if re.search(r"\b(?:not|declined|no replacement)\b", line):
+            continue
+        if re.search(r"\b(?:replace|repair|install|replacement of|installation of)\b[^.!?\n]{0,60}\b" + _REPAIR_COMPONENT + r"\b|"
+                     r"\b" + _REPAIR_COMPONENT + r"\s+(?:replacement|repair|installation)\b", line):
+            return True
+    return False
+
+
+def source_requires_sizing(quote_text):
+    """Read material capacity scope from source, independent of classifier labels."""
     text = str(quote_text or "").lower().replace("-", " ")
     # Only affirmative scope/claim lines count; mentioning an option that is declined does not.
     for line in text.splitlines():
@@ -139,9 +165,14 @@ def sizing_required(quote_text, classification=None):
             return True
         if sizing_text(line) and re.search(r"\b(?:oversized|undersized|tonnage change|capacity change|capacity selection|sizing)\b", line):
             return True
+        # An explicit major-unit replacement still matters when a separate
+        # component repair is listed on the same line.
+        if re.search(r"\b(?:replace|install|replacement of|installation of)\s+(?:the |a |new |existing )*"
+                     + _MAJOR + r"\b(?!\s+(?:system\s+)?" + _REPAIR_COMPONENT + r"\b)", line):
+            return True
         if re.search(r"\b(?:replace|replacement of|install|installation of)\b[^.!?\n]{0,60}\b" + _MAJOR + r"\b", line):
             # 'Replace furnace control board' is a repair, not a furnace replacement.
-            if not re.search(r"\b(?:compressor|capacitor|contactor|igniter|control board|flame sensor|thermostat|sensor|motor|coil|valve|filter|drain)\b", line) or re.search(r"\b(?:complete|entire) system\b", line):
+            if not re.search(r"\b" + _REPAIR_COMPONENT + r"\b", line) or re.search(r"\b(?:complete|entire) system\b", line):
                 return True
         if re.search(r"\b" + _MAJOR + r"\b\s+(?:replacement|installation)\b", line):
             return True

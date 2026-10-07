@@ -1,0 +1,5 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace contactor — $650.
+Thermostat call confirmed present.
+Contactor does not pull in during the call.
+Contactor coil control voltage has not been confirmed.

@@ -1,0 +1,4 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace control board — $1,800.
+Control board fault code E17 was recorded during intermittent operation.
+Control board power is present; the required call and expected output have not been tested.

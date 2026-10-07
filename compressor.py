@@ -68,6 +68,9 @@ def compressor_items(analysis):
 
 def compressor_required(text, classification=None):
     for line in source_lines(text):
+        # Replacing a compressor's starting capacitor is not compressor work.
+        line = re.sub(r"(?:replace|repair) (?:the |failed )?compressor (?:run |start |starting )?capacitor\b",
+                      "capacitor repair", line, flags=re.I)
         # A mention inside new-equipment specifications is not a failure claim.
         if re.search(r"no compressor (?:failure|repair|replacement)|not replacing (?:the )?compressor", line, re.I):
             continue
@@ -140,6 +143,10 @@ def compressor_source_facts(text):
 
 def normalize_compressor_assessments(analysis, text, assessment_type, classification=None):
     items = compressor_items(analysis)
+    if (re.search(r"(?:replace|repair) (?:the |failed )?compressor (?:run |start |starting )?capacitor\b", text, re.I)
+            and not compressor_required(text, classification)):
+        analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
+        return
     if not items and not compressor_required(text, classification):
         return
     facts = compressor_source_facts(text) if text.strip() else None
@@ -157,6 +164,14 @@ def normalize_compressor_assessments(analysis, text, assessment_type, classifica
         if facts and facts["diagnostic_evidence_status"] == "CONTRADICTORY":
             updates.update(facts)
         elif facts and facts["diagnostic_evidence_status"] == "CONFIRMED" and not a.contradictions:
+            updates.update(facts)
+        elif (facts and facts["diagnostic_evidence_status"] == "ABSENT" and not a.contradictions
+              and a.documented_evidence and all(
+                  re.search(r"capacitor|contactor|starting component", e, re.I)
+                  and re.search(r"indicat|likely|suspect|due to|because|therefore|prove", e, re.I)
+                  for e in a.documented_evidence)):
+            # A causal assertion about a failed starting component is not richer
+            # compressor evidence. Apply the existing absent-evidence boundary.
             updates.update(facts)
         elif facts and not a.contradictions and (not a.documented_evidence or all(
                 re.fullmatch(r"(?:compressor bad|compressor failed|fault code|age|no cooling|failed capacitor|ground test|winding test)[ .]*", e, re.I)
@@ -226,7 +241,40 @@ def compressor_paragraphs(analysis):
     if partial_voltage_drop(analysis):
         return [" ".join(customer_compressor_text(s) for s in evidence)
                 + " Those observations justify further checking, but they do not yet confirm that the compressor itself is the failed component."]
+    if any(_unresolved(a) for a in items):
+        # Raw assessments may attach the starting component's measurements to
+        # the compressor. Keep the assessment intact; those readings belong in
+        # Electrical Evidence, not as support for compressor condemnation.
+        sentences = [s for value in evidence for s in re.split(r"(?<=[.!?;])\s+|\n+", value)]
+        owned_evidence = [s for s in sentences if not _capacitor_only_evidence(s)]
+        if len(owned_evidence) != len(sentences):
+            return ["The quote does not show testing that confirms the compressor itself has failed.",
+                    *(customer_compressor_text(s) for s in owned_evidence)]
     return [customer_compressor_text(s) for s in [compressor_conclusion(items), *evidence]]
+
+
+def _capacitor_only_evidence(value):
+    capacitor = re.search(r"capacitor|capacitance|\b(?:MFD|microfarads?)\b|[µμu]F\b", value, re.I)
+    compressor_test = re.search(
+        r"compressor.{0,45}(?:windings?|terminals?|insulation|ground|amperage|current|voltage|"
+        r"(?:started|ran|runs|operated|operates)\b)|(?:winding|insulation|terminal.to.ground) test", value, re.I)
+    return bool(capacitor and not compressor_test)
+
+
+def _mandatory_capacitor_diagnostic_sequence(value):
+    """Recognize prescribed substitution/retest steps, not completed evidence."""
+    if not (re.search(r"capacitor", value, re.I)
+            and re.search(r"known[- ]good|replac\w*|substitut\w*|swap\w*|install\w*", value, re.I)
+            and re.search(r"test\w*|check\w*|verif\w*|function\w*|operat\w*|diagnos\w*", value, re.I)):
+        return False
+    if re.search(r"one (?:possible|optional) (?:diagnostic )?method|not (?:universally )?required|not mandatory", value, re.I):
+        return False
+    return bool(re.search(r"\b(?:vital|critical|essential|necessary|required|must|needs?|should)\b|"
+                          r"\b(?:has|have) to\b|\bonly\b.*(?:test|check)|"
+                          r"\bbefore\b.*\b(?:replace|install|substitute|retest)\b|"
+                          r"\b(?:replace|install|substitute)\b.*\bfirst\b", value, re.I)
+                or (re.search(r"known[- ]good", value, re.I)
+                    and re.search(r"\b(?:no|not|missing)\b", value, re.I)))
 
 
 def finalize_compressor_fields(analysis, source_text=""):
@@ -246,6 +294,18 @@ def finalize_compressor_fields(analysis, source_text=""):
     unresolved = any(_unresolved(a) for a in items)
     conclusion = compressor_conclusion(items)
     if unresolved:
+        # Substitution is one possible diagnostic method, not a prerequisite.
+        # Preserve completed testing and unrelated scope facts; replace only a
+        # customer-facing mandate with the actual unresolved evidence question.
+        sentences = re.split(r"(?<=[.!?])\s+", analysis.installation_concerns)
+        mandates = [s for s in sentences if _mandatory_capacitor_diagnostic_sequence(s)]
+        if mandates:
+            analysis.installation_concerns = " ".join(dict.fromkeys([
+                *(s for s in sentences if s not in mandates and not (
+                    re.search(r"\b(?:lacks?|missing|without)\b.{0,30}(?:crucial|critical|essential|necessary).{0,25}(?:verif|check|test)", s, re.I)
+                    and re.search(r"ensur\w*|effective repairs", s, re.I))),
+                "The quote does not show compressor-specific testing that establishes the compressor itself has failed.",
+            ]))
         if re.match(r"No .*missing|No (?:material|important|critical)", analysis.missing_information, re.I):
             analysis.missing_information = ""
         analysis.missing_information = (analysis.missing_information + " " + conclusion).strip()

@@ -1,0 +1,5 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace control board — $1,800.
+Control board required power and voltage confirmed present.
+Control board thermostat call confirmed present.
+Control board expected output measured absent during the call.

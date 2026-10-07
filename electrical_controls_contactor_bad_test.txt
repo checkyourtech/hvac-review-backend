@@ -1,0 +1,5 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace contactor — $650.
+The outdoor unit is not running.
+No coil/control-voltage test or contact/output test is documented.
+No testing isolating the contactor itself is provided.

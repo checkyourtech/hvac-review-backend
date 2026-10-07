@@ -29,6 +29,7 @@ from system_sizing import (
     submitted_sizing_excerpt, clear_submitted_sizing_support, sizing_review_paragraphs,
     sizing_display_values,
     comparable_heat_pump_plan,
+    component_repair_without_sizing_scope,
 )
 from pypdf import PdfReader
 from duct_airflow import (
@@ -61,6 +62,13 @@ from compressor import (
     partial_voltage_drop, customer_compressor_text,
     compressor_normal_after_start_repair,
     compressor_source_facts,
+)
+from electrical_controls import (
+    ELECTRICAL_CONTROLS_RULES, electrical_required, normalize_electrical_assessments,
+    electrical_items, electrical_paragraphs, finalize_electrical_fields,
+    electrical_question_purpose, assemble_electrical_questions, compose_electrical_summary,
+    supported_capacitor_unresolved_compressor,
+    motor_or_compressor_only, motor_work_required,
 )
 from evidence_sufficiency import (
     EVIDENCE_SUFFICIENCY_RULES, proposed_work_facts, discard_ungrounded_scope_only_claims,
@@ -506,6 +514,13 @@ Do not select electrical_controls merely because an HVAC system contains electri
 
 Select electrical_controls whenever the proposal involves diagnosing or condemning an electrical/control component and the diagnosis depends on voltage, amperage, resistance, continuity, thermostat-call, fuse, transformer, board-output, or fault-code testing.
 
+Use electrical_controls for discrete capacitor, contactor, relay, transformer, board,
+switch, flame-sensor signal or igniter electrical findings. Motor/ECM motor-module
+failure belongs to motors; compressor winding/ground/mechanical failure belongs to
+compressor. Neither needs electrical_controls solely because it uses electricity.
+Select both only for independently documented control-component work. Electrical
+switch/signal evidence does not by itself establish combustion safety or draft quality.
+
 10. confidence
 Use:
 - high
@@ -533,6 +548,12 @@ Classify the following HVAC quote or quotes:
 
     classification = completion.choices[0].message.parsed
     source_work = proposed_work_facts(all_quotes_text)
+    if motor_work_required(all_quotes_text) and AnalysisModule.MOTORS not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.MOTORS)
+    if electrical_required(all_quotes_text) and AnalysisModule.ELECTRICAL_CONTROLS not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.ELECTRICAL_CONTROLS)
+    elif motor_or_compressor_only(all_quotes_text):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.ELECTRICAL_CONTROLS]
     if source_work and AnalysisModule(source_work.module) not in classification.modules_required:
         classification.modules_required.append(AnalysisModule(source_work.module))
     if compressor_required(all_quotes_text, classification) and AnalysisModule.COMPRESSOR not in classification.modules_required:
@@ -2054,29 +2075,6 @@ _legacy_compressor = LEGACY_ANALYSIS_KNOWLEDGE["compressor"]
 _legacy_refrigerant = LEGACY_ANALYSIS_KNOWLEDGE["refrigerant_system"]
 _legacy_electrical = LEGACY_ANALYSIS_KNOWLEDGE["electrical_controls"]
 
-_corrupted_electrical_text = """- incoming and outgoing r motor or inducer assembly replacement proposals,
-evaluate whether the documented evidence reasonably supports failure of the
-inducer itself.
-
-Do not assume an inducer motor is defective merely because:
-- the furnace does not heat
-- the inducer does not run
-- a pressure-switch fault is present
-- ignition does not begin
-- the furnace has a draft-rvoltage readings"""
-
-_electrical_core = _prompt_section(
-    _legacy_electrical,
-    "ELECTRICAL / CONTROL REPAIR ANALYSIS RULES",
-    "BLOWER MOTOR AND ECM REPAIRS",
-).replace(_corrupted_electrical_text, "- incoming and outgoing voltage readings")
-
-_electrical_scope = _prompt_section(
-    _legacy_electrical,
-    "Do not mention these omissions in equipment_analysis",
-    "PRICING\n\nFollow the regional pricing limitation rules.",
-)
-
 _compressor_command_artifact = """EMAIL_APP_PASSWORD="" python -c "import asyncio; from main import AnalyzeRequest, UploadedQuote, analyze_hvac_quote; r=AnalyzeRequest(customerName='Test Customer', customerEmail='test@example.com', city='Reno', state='NV', files=[UploadedQuote(fileName='electrical_compressor_good_test.txt', extractedText=open('electrical_compressor_good_test.txt').read())]); a=asyncio.run(analyze_hvac_quote(r)); print(a.model_dump_json(indent=2))"
 
 """
@@ -2260,14 +2258,6 @@ For an incomplete economic basis, ask what repair cost, condition, or history ma
 the better option. For an incomplete failure basis, ask what finding supports the failure, while
 leaving technical diagnosis to its domain module. Do not ask an elective customer what failed or
 why the operating equipment cannot be repaired.
-"""
-
-ELECTRICAL_POSITIVE_EVIDENCE_RULES = """
-ELECTRICAL POSITIVE EVIDENCE
-
-For electrical/control proposals, reflect documented favorable evidence in good_signs when relevant, including measured electrical values supporting component failure, a clearly identified failed component, visible physical damage, correct component ratings or specifications, wiring or terminal inspection/repair, voltage verification, relevant amperage verification, and operational testing after repair.
-
-For capacitor and contactor work, specifically credit measured capacitance compared with rated capacitance, visibly burned or pitted contacts, documented voltage checks, evaluation of compressor/fan/motor behavior, and post-repair operational verification when those facts are documented. Do not manufacture a positive finding when the proposal does not contain the evidence.
 """
 
 REFRIGERANT_DECISION_PRIORITY_RULES = """
@@ -2626,9 +2616,7 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
     AnalysisModule.REFRIGERANT_SYSTEM: REFRIGERANT_SYSTEM_RULES,
     AnalysisModule.HEAT_EXCHANGER: HEAT_EXCHANGER_ANALYSIS_RULES,
     AnalysisModule.EQUIPMENT_MATCHING: EQUIPMENT_MATCHING_ANALYSIS_RULES,
-    AnalysisModule.ELECTRICAL_CONTROLS: "\n\n".join(
-        [_electrical_core, _electrical_scope, ELECTRICAL_POSITIVE_EVIDENCE_RULES]
-    ),
+    AnalysisModule.ELECTRICAL_CONTROLS: ELECTRICAL_CONTROLS_RULES,
     AnalysisModule.MOTORS: _prompt_section(
         _legacy_electrical,
         "BLOWER MOTOR AND ECM REPAIRS",
@@ -2641,11 +2629,11 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
                 "INDUCER MOTOR / COMBUSTION DRAFT REPAIRS",
                 "Do not mention these omissions in equipment_analysis",
             ),
-            _prompt_section(
-                _legacy_electrical,
-                "PRESSURE SWITCH / DRAFT PROVING REPAIRS",
-                "REFRIGERANT LEAK / LOW CHARGE REPAIRS",
-            ).replace("IGNITER_REPAIR_LOGIC =\n", ""),
+            "Pressure-switch electrical state, igniter failure and flame-sensor signals "
+            "belong to ELECTRICAL_CONTROLS. Draft/venting, gas pressure, combustion quality "
+            "and flame characteristics remain furnace combustion evidence. An electrical "
+            "test cannot establish combustion safety. Inducer motor failure is owned by "
+            "MOTORS; draft context must not create a duplicate motor diagnosis.",
         ]
     ),
     AnalysisModule.DUCT_AIRFLOW: DUCT_AIRFLOW_RULES,
@@ -2828,6 +2816,12 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    if motor_work_required(quote_text) and AnalysisModule.MOTORS not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.MOTORS)
+    if electrical_required(quote_text) and AnalysisModule.ELECTRICAL_CONTROLS not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.ELECTRICAL_CONTROLS)
+    elif motor_or_compressor_only(quote_text):
+        classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.ELECTRICAL_CONTROLS]
     source_work = proposed_work_facts(quote_text)
     if source_work and AnalysisModule(source_work.module) not in classification.modules_required:
         classification.modules_required.append(AnalysisModule(source_work.module))
@@ -4674,6 +4668,11 @@ def normalize_replacement_basis_customer_fields(
 def contractor_question_category(question: str) -> str:
     """Classify question purpose for deterministic ordering and pricing deduplication."""
     normalized = " ".join(str(question or "").lower().split())
+    if re.search(r"what.*included.*[$£€].*total", normalized):
+        return "pricing"
+    electrical_purpose = electrical_question_purpose(question)
+    if electrical_purpose:
+        return electrical_purpose
     if compressor_question(question):
         return "compressor_evidence"
     if commissioning_question(question) and not any(term in normalized for term in ("pricing", "price", "itemiz", "cost", "charges")):
@@ -5030,7 +5029,7 @@ def build_contractor_questions(
     questions_by_category = {}
     seen = set()
 
-    for raw_question in analysis.contractor_questions:
+    for raw_question in assemble_electrical_questions(analysis, analysis.contractor_questions):
         question = " ".join(str(raw_question or "").split())
         if not question:
             continue
@@ -5042,6 +5041,18 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if supported_capacitor_unresolved_compressor(analysis) and category in {"verification", "commissioning"}:
+            independent_purposes = {
+                contractor_question_category(s)
+                for a in analysis.technical_assessments
+                if a not in compressor_items(analysis) and a not in electrical_items(analysis)
+                and a.materiality != "MINOR"
+                and (a.diagnostic_evidence_status not in {"CONFIRMED", "ADEQUATE"}
+                     or a.scope_support != "APPROPRIATE" or a.material_gaps or a.contradictions)
+                for s in [a.subject, *a.material_gaps, *a.contradictions]
+            }
+            if category not in independent_purposes:
+                continue
         if (partial_voltage_drop(analysis) or compressor_normal_after_start_repair(analysis)) and category not in {"compressor_evidence", "pricing"}:
             independent_purposes = {
                 contractor_question_category(s)
@@ -5139,7 +5150,8 @@ def build_contractor_questions(
     }
     categorized_questions = sorted(
         questions_by_category.items(),
-        key=lambda item: priority[item[0]],
+        key=lambda item: (-1 if item[0] == "compressor_evidence" and supported_capacitor_unresolved_compressor(analysis)
+                          else 0 if item[0].startswith("electrical_") else priority[item[0]]),
     )
     questions = [question for _, question in categorized_questions[:5]]
 
@@ -5161,6 +5173,11 @@ def normalize_system_sizing_assessments(
 ) -> None:
     """Calibrate only the finalized copy; missing paperwork never proves wrong sizing."""
     items = sizing_assessments(analysis)
+    if component_repair_without_sizing_scope(quote_text):
+        # Removing a classifier request is not sufficient: the raw structured
+        # response may also have supplied an inapplicable sizing assessment.
+        analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
+        return
     if not items and sizing_required(quote_text, classification):
         analysis.technical_assessments.append(TechnicalEvidenceAssessment(
             subject=SIZING_SUBJECT, materiality="PRIMARY",
@@ -5667,6 +5684,7 @@ def finalize_customer_analysis(
     normalize_system_sizing_assessments(finalized, quote_text, classification)
     normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_compressor_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
+    normalize_electrical_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_refrigerant_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     ensure_primary_evidence_assessment(finalized, source_work, TechnicalEvidenceAssessment)
@@ -5715,6 +5733,7 @@ def finalize_customer_analysis(
     finalize_duct_fields(finalized, quote_text)
     finalize_commissioning_fields(finalized)
     finalize_compressor_fields(finalized, quote_text)
+    finalize_electrical_fields(finalized, quote_text)
     if compressor_items(finalized):
         normalize_compressor_pricing(finalized, quote_text)
     prepare_scope_only_customer_fields(finalized, source_work)
@@ -5920,6 +5939,7 @@ def finalize_customer_analysis(
     present_failed_commissioning(finalized, quote_text)
     compose_refrigerant_summary(finalized, quote_text)
     compose_compressor_summary(finalized)
+    compose_electrical_summary(finalized, quote_text)
     summarize_scope_only(finalized, source_work)
     if partial_voltage_drop(finalized):
         for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
@@ -6042,6 +6062,10 @@ def build_report_html(analysis, quote_count=None):
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     sizing_paragraphs = system_sizing_report_paragraphs(analysis)
+    electrical_section = (
+        '<div class="card"><h2>What Does the Electrical Evidence Show?</h2>'
+        + ''.join(f'<p>{esc(p)}</p>' for p in electrical_paragraphs(analysis)) + '</div>'
+    ) if electrical_items(analysis) else ""
     compressor_section = (
         '<div class="card"><h2>What Does the Compressor Evidence Show?</h2>'
         + ''.join(f'<p>{esc(p)}</p>' for p in compressor_paragraphs(analysis)) + '</div>'
@@ -6343,6 +6367,7 @@ ul {{
     {duct_section}
     {startup_section}
     {compressor_section}
+    {electrical_section}
     {refrigerant_section}
 
     {section(
