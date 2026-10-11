@@ -5,6 +5,7 @@ import base64
 import smtplib
 import urllib.request
 import re
+from dataclasses import replace
 from enum import Enum
 from email.message import EmailMessage
 from typing import List, Literal, Optional
@@ -69,7 +70,17 @@ from electrical_controls import (
     electrical_question_purpose, assemble_electrical_questions, compose_electrical_summary,
     supported_capacitor_unresolved_compressor,
     motor_or_compressor_only, motor_work_required,
+    electrical_evidence_review,
+    finalized_electrical_evidence, present_isolated_electrical_repair,
+    isolated_electrical_work,
 )
+from repair_diagnostics import (
+    REPAIR_DIAGNOSTIC_RULES, RepairEvidenceDefinition, review_repair_evidence,
+    apply_repair_evidence_guidance,
+    RepairEvidenceSection, REPAIR_EVIDENCE_HEADING, present_isolated_repair_summary,
+)
+from compressor import compressor_evidence_review
+from refrigerant_system import refrigerant_evidence_review
 from evidence_sufficiency import (
     EVIDENCE_SUFFICIENCY_RULES, proposed_work_facts, discard_ungrounded_scope_only_claims,
     ensure_primary_evidence_assessment, prepare_scope_only_customer_fields,
@@ -174,6 +185,9 @@ class HVACAnalysis(BaseModel):
     banner_explanation: str = ""
     homeowner_takeaway: str = ""
     bottom_line: str = ""
+    repair_evidence_sections: Optional[List[RepairEvidenceSection]] = Field(
+        default=None, description="Finalizer-owned customer evidence sections; leave null in the raw analysis."
+    )
 
 
 class AnalysisModule(str, Enum):
@@ -2644,6 +2658,154 @@ ANALYSIS_MODULES: dict[AnalysisModule, str] = {
     AnalysisModule.PRICING: UNIVERSAL_PRICING_RULES,
 }
 
+# These legacy owners still use structured AI assessments, not new source-based
+# classifiers. Their evidence examples do not change support thresholds or routing.
+MOTOR_EVIDENCE_DEFINITIONS = {
+    "blower_motor": RepairEvidenceDefinition("motor_blower", "blower motor",
+        "proper power and the applicable control command at the motor, together with motor/module response or direct winding, grounding or mechanical findings; capacitor checks apply only to motors that use one",
+        "What motor or module testing showed that the blower itself failed rather than its power or control supply?", True),
+    "condenser_fan_motor": RepairEvidenceDefinition("motor_condenser_fan", "condenser fan motor",
+        "proper supply and applicable capacitor results with motor current, winding/grounding or rotation findings that isolate the fan motor; a hot coil or stopped fan alone is not proof",
+        "What motor-specific test showed that the condenser fan motor itself failed?", True),
+    "inducer_motor": RepairEvidenceDefinition("motor_inducer", "inducer motor",
+        "power and command at the inducer with current, winding or mechanical/rotation findings; a pressure-switch code or draft problem alone does not identify a failed inducer",
+        "What motor-specific findings showed that the inducer itself failed rather than a power or draft problem?", True),
+}
+COMBUSTION_EVIDENCE_DEFINITIONS = {
+    "gas_valve": RepairEvidenceDefinition("combustion_gas_valve", "gas valve",
+        "the required operating command and gas-supply conditions with the valve response documented by the contractor; a failed ignition sequence alone does not identify a failed valve",
+        "What contractor test showed that the gas valve itself failed under the required operating conditions?", True),
+    "combustion": RepairEvidenceDefinition("combustion_condition", "combustion or gas-heat condition",
+        "the relevant ignition-sequence, gas-pressure, flame or combustion findings interpreted against the submitted equipment criteria, with safety and venting conditions considered when relevant",
+        "What documented combustion or gas-heat findings support this repair, and how do they compare with the equipment requirements?", True),
+}
+HEAT_EXCHANGER_EVIDENCE = RepairEvidenceDefinition("heat_exchanger_evidence", "heat exchanger",
+    "a documented crack, hole, separation or manufacturer-defined failure condition, shown by an inspection record or image; relevant combustion findings may support concern but do not alone prove a physical crack",
+    "What evidence confirms that the heat exchanger has failed—can you show the failed area or explain the inspection finding?")
+
+
+def legacy_repair_evidence_definition(subject):
+    """Only named repair diagnoses, never installation/compatibility assessments."""
+    if re.search(r"replacement basis|basis for|match|compatib|sizing|duct|commission|startup|warranty|pric", subject, re.I):
+        return None
+    if re.search(r"\b(?:capacitor|board|pressure switch|flame sensor|igniter)\b", subject, re.I):
+        return None  # Discrete controls own their own evidence.
+    for key, pattern in (
+        ("blower_motor", r"blower(?: motor)?|ECM (?:motor|module)"),
+        ("condenser_fan_motor", r"condenser[- ]fan(?: motor)?|outdoor[- ]fan(?: motor)?"),
+        ("inducer_motor", r"inducer(?: motor)?"),
+    ):
+        if re.search(pattern, subject, re.I) and re.search(r"motor|module|fail|repair|replace|test", subject, re.I):
+            return MOTOR_EVIDENCE_DEFINITIONS[key]
+    if re.search(r"gas valve", subject, re.I):
+        return COMBUSTION_EVIDENCE_DEFINITIONS["gas_valve"]
+    if re.search(r"combustion|gas[- ]heat|gas pressure|ignition sequence|venting|draft condition", subject, re.I):
+        return COMBUSTION_EVIDENCE_DEFINITIONS["combustion"]
+    return None
+
+
+def repair_diagnostic_question_owner(question):
+    # Independent value, scope and post-work verification questions are not
+    # missing diagnostic evidence, even when they mention a repair component.
+    if re.search(r"pric|cost|itemiz|breakdown|warranty|coverage|startup|commission|after (?:the )?(?:repair|work)|post.repair", question, re.I):
+        return None
+    if electrical_question_purpose(question):
+        return electrical_question_purpose(question)
+    if compressor_question(question):
+        return "compressor_evidence"
+    if re.search(r"heat[- ]exchanger", question, re.I):
+        return "heat_exchanger_evidence"
+    definition = legacy_repair_evidence_definition(question)
+    if definition:
+        return definition.key
+    purpose = refrigerant_question_purpose(question)
+    if purpose in {"refrigerant_verification", "refrigerant_repair_scope", "refrigerant_cause"}:
+        return None
+    if purpose:
+        if re.search(r"coil|evaporator|condenser", question, re.I):
+            return "coil_evidence"
+        if re.search(r"metering|TXV|piston", question, re.I):
+            return "metering_evidence"
+        if purpose == "refrigerant_evidence":
+            return purpose
+    return None
+
+
+def finalize_repair_diagnostic_guidance(analysis, quote_text=""):
+    """Apply the shared standard after existing domain finalizers, before render."""
+    reviews = []
+    electrical_reviews = []
+    section_reviews = {"compressor": [], "refrigerant": [], "repair": []}
+    source_work = proposed_work_facts(quote_text)
+    for item in analysis.technical_assessments:
+        if item.materiality == "MINOR":
+            continue
+        existing_question = next((q for q in analysis.contractor_questions
+            if repair_diagnostic_question_owner(q) == "compressor_evidence"), None)
+        if item in electrical_items(analysis):
+            review = electrical_evidence_review(item, quote_text)
+            owner = "electrical"
+        elif item in compressor_items(analysis):
+            review = compressor_evidence_review(item, quote_text, existing_question)
+            owner = "compressor"
+        elif item in refrigerant_items(analysis):
+            review = refrigerant_evidence_review(item, quote_text)
+            owner = "refrigerant"
+        elif item == primary_heat_exchanger_assessment(analysis):
+            review = review_repair_evidence(item, HEAT_EXCHANGER_EVIDENCE, quote_text)
+            owner = "repair"
+        else:
+            definition = legacy_repair_evidence_definition(item.subject)
+            review = review_repair_evidence(item, definition, quote_text) if definition else None
+            owner = "repair"
+        if review:
+            if source_work and source_work.scope_only and item.subject == source_work.subject:
+                review = replace(review, contractor_question=None if review.supported else source_work.question)
+            reviews.append(review)
+            if owner == "electrical":
+                electrical_reviews.append((item, review))
+            else:
+                section_reviews[owner].append(review)
+    apply_repair_evidence_guidance(analysis, reviews, repair_diagnostic_question_owner)
+    present_isolated_electrical_repair(analysis, quote_text, reviews)
+    sections = []
+    if electrical_reviews:
+        sections.append(RepairEvidenceSection(owner="electrical", title=REPAIR_EVIDENCE_HEADING, paragraphs=tuple(dict.fromkeys(
+                finalized_electrical_evidence(item, review) for item, review in electrical_reviews))))
+    # Freeze the existing specialized facts plus the shared educational layer
+    # here, not in HTML. Compressor sequences and refrigerant cause/verification
+    # interpretations keep their existing ownership and calibration.
+    for owner, title, paragraphs in (
+        ("compressor", "What Does the Compressor Evidence Show?", compressor_paragraphs(analysis)),
+        ("refrigerant", "What Does the Refrigerant Evidence Show?", refrigerant_paragraphs(analysis)),
+        ("repair", REPAIR_EVIDENCE_HEADING, []),
+    ):
+        items = compressor_items(analysis) if owner == "compressor" else refrigerant_items(analysis) if owner == "refrigerant" else []
+        if (items and len(section_reviews[owner]) == len(items)
+                and all(a.diagnostic_evidence_status == "ABSENT" and not a.documented_evidence for a in items)):
+            # With no observations, the old card only repeats "no findings".
+            # The detailed evidence guidance takes its place, not a second copy.
+            paragraphs = []
+        for review in section_reviews[owner]:
+            if owner == "repair" and review.definition.generic_section:
+                paragraphs.extend(review.documented_evidence)
+            if review.evidence_explanation:
+                paragraphs.append(review.evidence_explanation)
+        if paragraphs:
+            sections.append(RepairEvidenceSection(owner=owner,
+                title=REPAIR_EVIDENCE_HEADING if section_reviews[owner] else title,
+                paragraphs=tuple(dict.fromkeys(paragraphs))))
+    analysis.repair_evidence_sections = sections
+    if (len(reviews) == 1
+            and sum(a.materiality != "MINOR" for a in analysis.technical_assessments) == 1
+            and analysis.replacement_context == ReplacementContext.UNKNOWN
+            and len(re.findall(r"(?m)^\s*QUOTE \d+", quote_text)) <= 1):
+        present_isolated_repair_summary(
+            analysis, reviews[0],
+            build_homeowner_takeaway(analysis.decision, analysis.red_flags, analysis.good_signs),
+            build_bottom_line(analysis.decision),
+        )
+
 PHASE_2_MODULE_GAPS = (
     "lineset",
     "electrical_scope",
@@ -2845,6 +3007,7 @@ def get_analysis_knowledge(
         SECTION_QUALITY_RULES.strip(),
         UNIVERSAL_WARRANTY_RULES.strip(),
         EVIDENCE_SUFFICIENCY_RULES.strip(),
+        REPAIR_DIAGNOSTIC_RULES.strip(),
     ]
     selected_names = [
         module.value if isinstance(module, AnalysisModule) else str(module)
@@ -2860,6 +3023,12 @@ def get_analysis_knowledge(
                 else AnalysisModule(module_name)
             )
             module_text = ANALYSIS_MODULES[canonical_module]
+            definitions = (MOTOR_EVIDENCE_DEFINITIONS.values() if canonical_module == AnalysisModule.MOTORS else
+                           COMBUSTION_EVIDENCE_DEFINITIONS.values() if canonical_module == AnalysisModule.FURNACE_COMBUSTION else ())
+            if definitions:
+                module_text += "\n\nCOMPONENT EVIDENCE EXAMPLES (not a required checklist)\n" + "\n".join(
+                    f"{d.component}: {d.expected_evidence}. Ask one missing-evidence question, such as: {d.question}"
+                    for d in definitions)
         except (KeyError, ValueError) as exc:
             raise ValueError(
                 f"Unknown or unregistered analysis module: {module_name}"
@@ -5671,6 +5840,8 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+    # Neither AI text nor a previous finalization may supply this snapshot.
+    finalized.repair_evidence_sections = None
     source_work = proposed_work_facts(quote_text)
     source_compressor = (compressor_source_facts(quote_text) if source_work and source_work.component == "compressor" else None)
     direct_evidence = (source_compressor["documented_evidence"] if source_compressor
@@ -5723,11 +5894,6 @@ def finalize_customer_analysis(
         finalized.missing_information = (
             "No important missing information was identified that appears likely to "
             "change the recommendation."
-        )
-    if not finalized.installation_concerns.strip():
-        finalized.installation_concerns = (
-            "No significant installation or repair-scope concerns were identified in "
-            "the submitted proposal."
         )
     normalize_system_sizing_customer_fields(finalized, quote_text)
     finalize_duct_fields(finalized, quote_text)
@@ -5896,7 +6062,7 @@ def finalize_customer_analysis(
     ))
     finalized.installation_concerns = _without_installation_scope_overclaims(
         finalized.installation_concerns
-    ) or "Review the documented installation scope with the contractor before approval."
+    )
     # Only the application can supply benchmark context. Never trust a model range.
     finalized.price_facts = extract_quote_price_facts(quote_text)
     finalized.market_price_context = evaluate_market_price(finalized.price_facts)
@@ -5970,6 +6136,7 @@ def finalize_customer_analysis(
         finalized.missing_information = (
             "No important technical information is missing from the submitted diagnosis."
         )
+    finalize_repair_diagnostic_guidance(finalized, quote_text)
     return finalized
 
 
@@ -5990,6 +6157,33 @@ def make_list(items):
     if not items:
         return "<li>No major items identified.</li>"
     return "".join(f"<li>{esc(item)}</li>" for item in items)
+
+def missing_information_for_report(value):
+    """Hide standalone no-gap boilerplate, not actual missing-evidence text.
+
+    Preserve the compatibility field and never infer support/verdicts from copy.
+    Full-text matching is deliberate: a statement followed by a genuine concern
+    must not disappear just because it starts with a no-gap sentence.
+    """
+    no_gap_copy = {
+        "No important technical information is missing from the submitted diagnosis.",
+        "No important missing information was identified that appears likely to change the recommendation.",
+        "No material technical information is missing.",
+        "No material missing information.",
+        "No important information is missing.",
+        "No critical information is missing in this proposal.",
+        "No important heat-exchanger evidence appears to be missing from the quote.",
+        "No important sizing information is missing from the submitted proposal.",
+        "No important sizing or duct-support information is missing from the submitted proposal.",
+        "No material sizing or duct-support information needs to be cleared up before approval.",
+        "No material sizing, duct or startup information needs to be cleared up before approval.",
+        "No material sizing, duct-support or startup information needs to be cleared up in the submitted documents.",
+        "No material information about the identified leak or proposed repair needs to be cleared up before approval.",
+    }
+    text = str(value or "").strip()
+    normalized = " ".join(text.casefold().split()).rstrip(".")
+    return "" if normalized in {s.casefold().rstrip(".") for s in no_gap_copy} else text
+
 
 def build_report_html(analysis, quote_count=None):
     def clean(value):
@@ -6051,7 +6245,7 @@ def build_report_html(analysis, quote_count=None):
         "UNSUPPORTED": "Unsupported",
     }[analysis.decision.technical_support]
 
-    missing_information = clean(analysis.missing_information)
+    missing_information = missing_information_for_report(analysis.missing_information)
     installation_concerns = clean(analysis.installation_concerns)
     quote_comparison = clean(analysis.quote_comparison)
     best_quote = clean(analysis.best_quote_recommendation)
@@ -6062,18 +6256,35 @@ def build_report_html(analysis, quote_count=None):
     pricing_review = clean(analysis.pricing_review)
     equipment_analysis = clean(analysis.equipment_analysis)
     sizing_paragraphs = system_sizing_report_paragraphs(analysis)
-    electrical_section = (
-        '<div class="card"><h2>What Does the Electrical Evidence Show?</h2>'
-        + ''.join(f'<p>{esc(p)}</p>' for p in electrical_paragraphs(analysis)) + '</div>'
-    ) if electrical_items(analysis) else ""
-    compressor_section = (
-        '<div class="card"><h2>What Does the Compressor Evidence Show?</h2>'
-        + ''.join(f'<p>{esc(p)}</p>' for p in compressor_paragraphs(analysis)) + '</div>'
-    ) if compressor_items(analysis) else ""
-    refrigerant_section = (
-        '<div class="card"><h2>What Does the Refrigerant Evidence Show?</h2>'
-        + ''.join(f'<p>{esc(p)}</p>' for p in refrigerant_paragraphs(analysis)) + '</div>'
-    ) if refrigerant_items(analysis) else ""
+    electrical_section = compressor_section = refrigerant_section = ""
+    repair_section = ""
+    if analysis.repair_evidence_sections is None:
+        # Compatibility for older persisted objects without presentation fields.
+        electrical_section = (
+            '<div class="card"><h2>What Does the Electrical Evidence Show?</h2>'
+            + ''.join(f'<p>{esc(p)}</p>' for p in electrical_paragraphs(analysis)) + '</div>'
+        ) if electrical_items(analysis) else ""
+        compressor_section = (
+            '<div class="card"><h2>What Does the Compressor Evidence Show?</h2>'
+            + ''.join(f'<p>{esc(p)}</p>' for p in compressor_paragraphs(analysis)) + '</div>'
+        ) if compressor_items(analysis) else ""
+        refrigerant_section = (
+            '<div class="card"><h2>What Does the Refrigerant Evidence Show?</h2>'
+            + ''.join(f'<p>{esc(p)}</p>' for p in refrigerant_paragraphs(analysis)) + '</div>'
+        ) if refrigerant_items(analysis) else ""
+    else:
+        # Finalized values are authoritative. Do not recompose from assessments
+        # or resurrect old generic diagnosis wording in a renderer.
+        evidence_sections = {owner: "" for owner in ("electrical", "compressor", "refrigerant", "repair")}
+        for evidence in analysis.repair_evidence_sections:
+            if evidence.owner in evidence_sections:
+                evidence_sections[evidence.owner] += (
+                    f'<div class="card"><h2>{esc(evidence.title)}</h2>'
+                    + ''.join(f'<p>{esc(p)}</p>' for p in evidence.paragraphs) + '</div>')
+        electrical_section = evidence_sections["electrical"]
+        compressor_section = evidence_sections["compressor"]
+        refrigerant_section = evidence_sections["refrigerant"]
+        repair_section = evidence_sections["repair"]
     startup_paragraphs = commissioning_paragraphs(analysis)
     startup_section = (
         '<div class="card"><h2>How Will Startup Be Verified?</h2>'
@@ -6357,10 +6568,7 @@ ul {{
         </div>
     </div>
 
-    <div class="plain-english">
-        <h2>What This Means for You</h2>
-        <p>{esc(plain_english)}</p>
-    </div>
+    {section("What This Means for You", plain_english, "plain-english")}
 
     {section("Does the Diagnosis Make Sense?", equipment_analysis)}
     {sizing_section}
@@ -6369,6 +6577,7 @@ ul {{
     {compressor_section}
     {electrical_section}
     {refrigerant_section}
+    {repair_section}
 
     {section(
         "Important Missing Information",
@@ -6388,14 +6597,12 @@ ul {{
 
     {list_section(
         "Red Flags",
-        red_flags,
-        "No major red flags were identified in the submitted proposal."
+        red_flags
     )}
 
     {list_section(
         "Good Signs",
-        good_signs,
-        "No major positive findings were specifically documented."
+        good_signs
     )}
 
     {list_section(

@@ -26,6 +26,9 @@ CASES = {
     "electrical_controls_contactor_bad_test.txt": ("contactor", "ABSENT", "UNSUPPORTED", 1),
     "electrical_controls_contactor_partial_test.txt": ("contactor", "INCOMPLETE", "PARTIALLY_SUPPORTED", 0),
     "electrical_controls_contactor_good_test.txt": ("contactor", "CONFIRMED", "SUPPORTED", 0),
+    "electrical_controls_transformer_bad_test.txt": ("transformer", "ABSENT", "UNSUPPORTED", 1),
+    "electrical_controls_transformer_partial_test.txt": ("transformer", "INCOMPLETE", "PARTIALLY_SUPPORTED", 0),
+    "electrical_controls_transformer_good_test.txt": ("transformer", "CONFIRMED", "SUPPORTED", 0),
     "electrical_controls_pressure_partial_test.txt": ("pressure switch", "INCOMPLETE", "PARTIALLY_SUPPORTED", 0),
     "electrical_pressure_switch_good_test.txt": ("pressure switch", "CONFIRMED", "SUPPORTED", 0),
     "electrical_pressure_switch_bad_test.txt": ("pressure switch", "ABSENT", "UNSUPPORTED", 1),
@@ -104,7 +107,8 @@ class ElectricalControlsTests(unittest.TestCase):
         self.assertEqual(main.contractor_question_category(final.contractor_questions[-1]), "pricing")
         if support != "SUPPORTED":
             self.assertTrue(main.contractor_question_category(final.contractor_questions[0]).startswith("electrical_"))
-        self.assertIn("What Does the Electrical Evidence Show?", main.build_report_html(final, 1))
+        title = "What Evidence Should Support This Diagnosis?"
+        self.assertIn(title, main.build_report_html(final, 1))
 
     def test_registry_and_prompt(self):
         self.assertEqual(main.ANALYSIS_MODULES[main.AnalysisModule.ELECTRICAL_CONTROLS], ec.ELECTRICAL_CONTROLS_RULES)
@@ -156,7 +160,7 @@ class ElectricalControlsTests(unittest.TestCase):
                 original = analysis_with([assessment("INCOMPLETE", "PARTIALLY_DEFINED", subject=f"{motor} failure")])
                 final = self.final(text, original)
                 self.assertEqual(ec.electrical_items(final), [])
-                self.assertNotIn("What Does the Electrical Evidence Show?", main.build_report_html(final, 1))
+                self.assertNotIn("electrical", [section.owner for section in final.repair_evidence_sections])
                 knowledge = main.get_analysis_knowledge(classified([main.AnalysisModule.ELECTRICAL_CONTROLS, main.AnalysisModule.MOTORS]), text)
                 self.assertNotIn(ec.ELECTRICAL_CONTROLS_RULES.strip(), knowledge)
                 parsed = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(parsed=classified([main.AnalysisModule.ELECTRICAL_CONTROLS])))])
@@ -233,7 +237,7 @@ class ElectricalControlsTests(unittest.TestCase):
 
     def test_contactor_fixtures_have_focused_gaps_questions_and_findings(self):
         for state, question in (
-            ("bad", "What testing showed that the contactor itself has failed?"),
+            ("bad", "What control input and switching-response or contact-test results show that the contactor itself has failed?"),
             ("partial", "What control voltage was measured at the contactor coil during the call?"),
             ("good", None),
         ):
@@ -309,7 +313,7 @@ class ElectricalControlsTests(unittest.TestCase):
                 self.assertEqual(len(final.good_signs), 1 if state == "good" else 0)
                 technical = [q for q in final.contractor_questions if main.contractor_question_category(q) != "pricing"]
                 self.assertEqual(technical, [] if state == "good" else [
-                    "What testing showed that the relay itself has failed?" if state == "bad" else
+                    "What control input and switching-response or contact-test results show that the relay itself has failed?" if state == "bad" else
                     "What control voltage was measured at the relay coil during the call?"])
 
     def test_contactor_control_input_cannot_be_borrowed_or_invented(self):
@@ -385,10 +389,10 @@ class ElectricalControlsTests(unittest.TestCase):
                 self.assertEqual(compressor_items(final), [])
                 self.assertEqual(main.refrigerant_items(final), [])
                 self.assertEqual(main.sizing_assessments(final), [])
+                self.assertEqual([s.owner for s in final.repair_evidence_sections], ["electrical"])
                 self.assertEqual(len(final.good_signs), 1 if state == "good" else 0)
                 report = html.unescape(response.text)
-                for token in (*forbidden, *INVENTED, "How Will Startup Be Verified?", "Is the New System the Right Size?",
-                              "What Does the Compressor Evidence Show?", "What Does the Refrigerant Evidence Show?"):
+                for token in (*forbidden, *INVENTED, "How Will Startup Be Verified?", "Is the New System the Right Size?"):
                     self.assertNotIn(token.lower(), report.lower())
                 if state == "good":
                     explanation = (
@@ -426,6 +430,207 @@ class ElectricalControlsTests(unittest.TestCase):
             final = self.final(f"Replace contactor.\nContactor {finding}.")
             self.assertEqual(final.decision.technical_support, "SUPPORTED")
             self.assertNotIn("receiving the control signal", " ".join(ec.electrical_paragraphs(final)))
+
+    def test_transformer_fixtures_have_one_owned_gap_question_and_finding(self):
+        for state, question in (
+            ("bad", "What primary and secondary voltages were measured at the control transformer, and if the secondary voltage was low or absent, was the 24-volt circuit checked for a short or excessive load before the transformer was condemned?"),
+            ("partial", "What voltage was measured on the transformer secondary while primary power was present?"),
+            ("good", None),
+        ):
+            with self.subTest(state=state):
+                filename = f"electrical_controls_transformer_{state}_test.txt"
+                final = self.final(Path(filename).read_text())
+                self.check_case(final, filename)
+                self.assertEqual(len(final.technical_assessments), 1)
+                self.assertEqual(len(final.good_signs), 1 if state == "good" else 0)
+                item = ec.electrical_items(final)[0]
+                self.assertEqual(len(item.material_gaps), 0 if state == "good" else 1)
+                technical = [q for q in final.contractor_questions if main.contractor_question_category(q) != "pricing"]
+                self.assertEqual(technical, [question] if question else [])
+                if question:
+                    self.assertEqual(main.contractor_question_category(question), "electrical_transformer")
+                if state == "partial":
+                    self.assertEqual(final.missing_information,
+                        "The quote does not show the transformer secondary output measured while primary power was present.")
+                    self.assertEqual(item.material_gaps, [final.missing_information])
+                elif state == "good":
+                    self.assertEqual(final.missing_information,
+                                     "No important technical information is missing from the submitted diagnosis.")
+
+    def test_transformer_blank_thermostat_or_lost_control_power_is_not_failure_evidence(self):
+        for symptom in ("The thermostat is blank.", "The unit has no 24V.",
+                        "No low-voltage power is available.", "Transformer output has not been measured.",
+                        "No transformer primary or secondary readings are documented.",
+                        "Transformer supplies the low-voltage control circuit."):
+            with self.subTest(symptom=symptom):
+                final = self.final("Replace control transformer.\n" + symptom)
+                self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
+                item = ec.electrical_items(final)[0]
+                self.assertEqual(item.diagnostic_evidence_status, "ABSENT")
+                self.assertEqual(item.documented_evidence, [])
+                self.assertEqual(final.good_signs, [])
+                self.assertEqual(len(final.red_flags), 1)
+
+    def test_transformer_primary_without_secondary_test_stays_partial(self):
+        for finding in (
+            "Transformer secondary output was not measured.",
+            "Transformer secondary voltage was not confirmed.",
+            "Transformer secondary output was not confirmed absent.",
+            "Transformer secondary output was never measured absent.",
+            "Low-voltage control power is missing downstream.",
+            "Transformer output measured absent downstream at the thermostat.",
+            "Will measure whether transformer secondary output is absent.",
+            "Example: transformer secondary output measured absent.",
+            "Transformer secondary output is absent.",  # No actual test documented.
+            "",
+        ):
+            with self.subTest(finding=finding):
+                final = self.final("Replace control transformer.\nTransformer primary input power confirmed present.\n" + finding)
+                self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
+                self.assertEqual(final.red_flags, [])
+                self.assertEqual(final.good_signs, [])
+                self.assertEqual(final.contractor_questions[0],
+                    "What voltage was measured on the transformer secondary while primary power was present?")
+        # Do not keep an AI CONFIRMED label merely because a source-backed sentence
+        # mentions isolation; it must actually document the missing output check.
+        evidence = "Transformer primary input power confirmed present; further testing needed to isolate failure."
+        original = raw()
+        original.technical_assessments = [assessment("CONFIRMED", subject=ec.PREFIX + "transformer", evidence=[evidence])]
+        final = self.final("Replace control transformer.\n" + evidence, original)
+        self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
+
+    def test_transformer_documented_input_and_absent_output_support_replacement(self):
+        for readings in (
+            "Transformer primary input power confirmed present.\nTransformer secondary output measured absent.",
+            "Transformer primary voltage measured present; transformer secondary voltage measured absent.",
+            "Transformer input power confirmed present but transformer output measured missing.",
+            "Transformer primary voltage confirmed present and transformer secondary output measured absent.",
+            "Power to the transformer confirmed present.\nTransformer output measured absent.",
+            "Primary voltage confirmed present.\nSecondary output measured absent.",
+        ):
+            with self.subTest(readings=readings):
+                final = self.final("Replace control transformer.\n" + readings)
+                self.assertEqual(final.decision.technical_support, "SUPPORTED")
+                self.assertEqual(final.red_flags, [])
+                self.assertEqual(len(final.good_signs), 1)
+                self.assertEqual([main.contractor_question_category(q) for q in final.contractor_questions], ["pricing"])
+        final = self.final("Replace control transformer.\nTransformer primary input power confirmed present but transformer secondary output was not measured.")
+        self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
+
+    def test_transformer_power_cannot_be_borrowed_or_invented(self):
+        for primary in (
+            "Control board required power confirmed present.",
+            "Contactor control voltage confirmed present at the coil.",
+            "Transformer primary power was not confirmed present.",
+            "Transformer primary power measured absent.",
+            "Will verify transformer primary power is present.",
+            "If transformer primary power is confirmed present, transformer replacement will follow.",
+        ):
+            with self.subTest(primary=primary):
+                final = self.final("Replace control transformer.\n" + primary + "\nTransformer secondary output measured absent.")
+                self.assertNotEqual(final.decision.technical_support, "SUPPORTED")
+                self.assertEqual(len(final.technical_assessments), 1)
+        for output in ("Control board expected output measured absent.",
+                       "Contactor switched output measured absent."):
+            with self.subTest(output=output):
+                final = self.final("Replace control transformer.\nTransformer primary power confirmed present.\n" + output)
+                self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
+        self.assertEqual(ec.electrical_source_facts(
+            "QUOTE 1\nReplace control transformer.\nTransformer primary power confirmed present.\n"
+            "QUOTE 2\nTransformer secondary output measured absent."), [])
+
+    def test_transformer_routing_and_low_voltage_alias_stay_with_electrical_controls(self):
+        for state in ("bad", "partial", "good"):
+            source = Path(f"electrical_controls_transformer_{state}_test.txt").read_text()
+            for component in ("control transformer", "transformer", "low-voltage control transformer"):
+                with self.subTest(state=state, component=component):
+                    text = source.replace("Replace control transformer", f"Replace {component}")
+                    self.assertEqual(ec.proposed_components(text), ["transformer"])
+                    parsed = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(parsed=classified()))])
+                    with patch.object(main.client.beta.chat.completions, "parse", return_value=parsed):
+                        result = main.classify_quotes(text)
+                    self.assertEqual(result.modules_required, [main.AnalysisModule.ELECTRICAL_CONTROLS])
+                    self.assertIn(ec.ELECTRICAL_CONTROLS_RULES.strip(), main.get_analysis_knowledge(classified(), text))
+        for symptom in ("Blank thermostat.", "No low-voltage control power."):
+            self.assertEqual(ec.proposed_components(symptom), [])
+
+    def test_transformer_pricing_is_independent(self):
+        for state in ("bad", "partial", "good"):
+            for pricing in ("LIMITED", "ADEQUATE"):
+                with self.subTest(state=state, pricing=pricing):
+                    source = Path(f"electrical_controls_transformer_{state}_test.txt").read_text()
+                    if pricing == "ADEQUATE":
+                        source = source.replace("Replace control transformer — $650.",
+                            "Replace control transformer.\nParts: $200.\nLabor: $450.\nTotal: $650.")
+                    original = raw()
+                    original.decision.pricing_transparency = pricing
+                    final = self.final(source, original)
+                    self.assertEqual(final.decision.technical_support,
+                        CASES[f"electrical_controls_transformer_{state}_test.txt"][2])
+                    self.assertEqual(final.decision.pricing_transparency, pricing)
+                    self.assertEqual(final.decision.verdict, "GET_A_SECOND_OPINION" if state == "bad" else
+                        "PROCEED" if state == "good" and pricing == "ADEQUATE" else "REVIEW_BEFORE_APPROVING")
+                    self.assertEqual(sum(main.contractor_question_category(q) == "pricing"
+                                         for q in final.contractor_questions), int(pricing == "LIMITED"))
+                    if state == "good" and pricing == "ADEQUATE":
+                        self.assertEqual(final.contractor_questions, [])
+
+    def test_transformer_upload_no_hallucinations_duplicate_questions_or_raw_fact_dump(self):
+        forbidden = ("120V", "208V", "240V", "24V", "40 VA", "continuity", "resistance", "fuse",
+                     "terminal R1", "burned smell", "visible damage", "fault code E17", "control board",
+                     "contactor", "compressor", "motor", "refrigerant", "system sizing", "commissioning", "combustion")
+        for state in ("bad", "partial", "good"):
+            with self.subTest(state=state):
+                filename = f"electrical_controls_transformer_{state}_test.txt"
+                source = Path(filename).read_text()
+                original = raw("transformer", malicious=True)
+                original.technical_assessments[0].documented_evidence = [". ".join(forbidden)]
+                original.good_signs = [". ".join(forbidden)] * 2
+                original.contractor_questions += [
+                    "What testing showed transformer failure?", "What transformer secondary output was measured?",
+                    "How will system commissioning be verified after the repair?",
+                ]
+                before = original.model_dump()
+                responses = [SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(parsed=a))])
+                             for a in (classified(), original)]
+                with TemporaryDirectory(prefix="cyt-transformer-") as upload_dir, patch.object(
+                        main, "UPLOAD_DIR", Path(upload_dir)), contextlib.redirect_stdout(io.StringIO()), patch.object(
+                        main.client.beta.chat.completions, "parse", side_effect=responses) as api, patch.object(main, "send_review_email") as email:
+                    response = TestClient(main.app).post("/upload",
+                        data={"package": "tier1", "customer_name": "Offline", "customer_email": "offline@example.com"},
+                        files={"files": (filename, source.encode(), "text/plain")})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(api.call_count, 2)
+                final = email.call_args.kwargs["analysis"]
+                self.check_case(final, filename)
+                self.assertEqual(len(final.technical_assessments), 1)
+                self.assertEqual(len(final.good_signs), 1 if state == "good" else 0)
+                report = html.unescape(response.text)
+                for token in (*forbidden, *INVENTED, "How Will Startup Be Verified?", "Is the New System the Right Size?"):
+                    self.assertNotIn(token.lower(), report.lower())
+                if state == "good":
+                    explanation = (
+                        "The technician confirmed that power was reaching the transformer and measured no secondary output. "
+                        "Those findings support replacing the transformer.")
+                    self.assertEqual(ec.electrical_paragraphs(final), [explanation])
+                    self.assertEqual(report.count(explanation), 1)
+                    self.assertNotIn("One documented technical strength:", final.homeowner_takeaway)
+                    for field_fact in source.splitlines()[2:]:
+                        self.assertIn(field_fact, final.technical_assessments[0].documented_evidence)
+                        self.assertNotIn(field_fact, report)
+                self.assertEqual(response.text, main.build_report_html(final, 1))
+                self.assertEqual(original.model_dump(), before)
+                self.assertEqual(self.final(source, final).model_dump(), final.model_dump())
+
+    def test_transformer_readability_keeps_only_submitted_numeric_details(self):
+        source = Path("electrical_controls_transformer_good_test.txt").read_text()
+        submitted = "Transformer primary voltage measured 121 volts and confirmed present."
+        final = self.final(source + "\n" + submitted)
+        paragraphs = " ".join(ec.electrical_paragraphs(final))
+        self.assertIn(submitted, final.technical_assessments[0].documented_evidence)
+        self.assertEqual(paragraphs.count(submitted), 1)
+        self.assertNotRegex(paragraphs, r"\b(?:120|208|240|24)\s*(?:V|volts)\b")
+        self.assertEqual(final.decision.technical_support, "SUPPORTED")
 
     def test_question_purpose_deduplication(self):
         original = raw()
@@ -476,7 +681,7 @@ class ElectricalControlsTests(unittest.TestCase):
                          "The quoted total is $1,800, but the quote does not show how that amount is divided. "
                          "Ask for an itemized breakdown of the parts, labor, and other major charges before approving the work.")
         self.assertEqual(final.contractor_questions, [
-            "What input and output testing showed that the control board itself has failed?",
+            "Was the thermostat call reaching the control board, and what output did the board produce during that call?",
             "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $1,800 total?",
         ])
         report = html.unescape(response.text)
@@ -517,7 +722,7 @@ class ElectricalControlsTests(unittest.TestCase):
         self.assertEqual(final.decision.pricing_transparency, "ADEQUATE")
         self.assertEqual(final.pricing_review, "Parts: $1,000. Labor: $800. Total repair price: $1,800.")
         self.assertEqual(final.contractor_questions,
-                         ["What input and output testing showed that the control board itself has failed?"])
+                         ["Was the thermostat call reaching the control board, and what output did the board produce during that call?"])
         self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
         self.assertEqual(final.red_flags, [])
 
@@ -540,7 +745,7 @@ class ElectricalControlsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(api.call_count, 2)
         final = email.call_args.kwargs["analysis"]
-        changed_copy = {"good_signs", "homeowner_takeaway", "bottom_line"}
+        changed_copy = {"good_signs", "homeowner_takeaway", "bottom_line", "repair_evidence_sections"}
         self.assertEqual(final.model_dump(exclude=changed_copy), baseline.model_dump(exclude=changed_copy))
         self.assertEqual(final.decision.technical_support, "SUPPORTED")
         self.assertEqual(final.decision.verdict, "REVIEW_BEFORE_APPROVING")
@@ -558,17 +763,16 @@ class ElectricalControlsTests(unittest.TestCase):
         ])
         report = html.unescape(response.text)
         electrical = html.unescape(re.search(
-            r"<h2>What Does the Electrical Evidence Show\?</h2>(.*?)</div>", response.text, re.S).group(1))
+            r"<h2>What Evidence Should Support This Diagnosis\?</h2>(.*?)</div>", response.text, re.S).group(1))
         for fact in ("confirmed power to the control board", "thermostat was calling for operation",
                      "expected output from the board was absent", "support replacing the control board"):
             self.assertIn(fact, electrical)
         for awkward in ("One documented technical strength:", "Control board required power",
                         "Control board thermostat call", "Control board expected output", "clearer breakdown"):
             self.assertNotIn(awkward, report)
-        self.assertIn("board had power and received the thermostat call", final.homeowner_takeaway)
-        self.assertIn("expected output was missing", final.homeowner_takeaway)
-        for text in (final.homeowner_takeaway, final.bottom_line):
-            self.assertIn("itemized breakdown of the $1,800 total", text)
+        self.assertEqual(final.homeowner_takeaway, "")
+        self.assertNotIn("<h2>What This Means for You</h2>", report)
+        self.assertIn("itemized breakdown of the $1,800 total", final.bottom_line)
         self.assertIn("power at the board", final.good_signs[0])
         self.assertIn("thermostat call reaching the board", final.good_signs[0])
         self.assertIn("expected board output being absent", final.good_signs[0])
@@ -793,8 +997,8 @@ class ElectricalControlsTests(unittest.TestCase):
     def test_bare_board_has_no_unrelated_sections_or_invented_readings(self):
         final = self.final(Path("electrical_controls_board_bad_test.txt").read_text())
         report = main.build_report_html(final, 1)
-        for heading in ("How Will Startup Be Verified?", "Is the New System the Right Size?",
-                        "What Does the Compressor Evidence Show?", "What Does the Refrigerant Evidence Show?"):
+        self.assertEqual([s.owner for s in final.repair_evidence_sections], ["electrical"])
+        for heading in ("How Will Startup Be Verified?", "Is the New System the Right Size?"):
             self.assertNotIn(heading, report)
         self.assertEqual(final.good_signs, [])
         for word in ("volts", "amps", "ohms", "fault code", "microamps", "warranty"):
@@ -980,11 +1184,14 @@ class ElectricalControlsTests(unittest.TestCase):
         self.assertIn("compressor itself", final.installation_concerns)
         self.assertIn("Capacitor and compressor replacement are included.", final.installation_concerns)
 
-        def section(heading):
-            return html.unescape(re.search(r"<h2>" + re.escape(heading) + r"</h2>(.*?)</div>", response.text, re.S).group(1))
+        def section(owner):
+            paragraphs = next(s.paragraphs for s in final.repair_evidence_sections if s.owner == owner)
+            for paragraph in paragraphs:
+                self.assertIn(html.escape(paragraph), response.text)
+            return " ".join(paragraphs)
 
-        electrical = section("What Does the Electrical Evidence Show?")
-        compressor = section("What Does the Compressor Evidence Show?")
+        electrical = section("electrical")
+        compressor = section("compressor")
         for value in ("45/5 MFD", "18.6 MFD", "2.1 MFD"):
             self.assertIn(value, electrical)
             self.assertIn(value, " ".join(final.good_signs))

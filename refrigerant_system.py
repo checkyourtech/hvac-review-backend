@@ -4,7 +4,9 @@ No thermodynamic limits are supplied here. Submitted measurements and interprete
 results are evidence; a procedure name, proposed test or refrigerant type is not.
 """
 import re
+from dataclasses import replace
 from evidence_sufficiency import proposed_work_facts
+from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
 
 CONDITION = "Refrigerant condition supporting proposed work"
 CAUSE = "Leak / refrigerant-loss cause"
@@ -12,6 +14,41 @@ COIL = "Coil refrigerant-circuit condition"
 METERING = "Metering-device / refrigerant-flow condition"
 VERIFICATION = "Post-repair refrigerant verification"
 SUBJECTS = (CONDITION, CAUSE, COIL, METERING, VERIFICATION)
+
+REFRIGERANT_EVIDENCE = {
+    CONDITION: RepairEvidenceDefinition("refrigerant_evidence", "refrigerant condition",
+        "pressure and temperature measurements interpreted for the equipment and conditions, such as applicable superheat/subcooling, saturation or line temperatures, or the supplied charging method; a symptom or pressure alone does not identify the fault",
+        "What pressure/temperature readings and equipment-based interpretation support the refrigerant diagnosis?"),
+    COIL: RepairEvidenceDefinition("coil_evidence", "coil",
+        "a detector, bubble, dye, pressure/isolation result or other finding tied to the specific coil; low charge alone does not locate a leak at that coil",
+        "What evidence ties the refrigerant leak or failure to the coil being replaced?"),
+    METERING: RepairEvidenceDefinition("metering_evidence", "metering device",
+        "pressure, temperature and applicable superheat/subcooling findings isolating a flow restriction or valve malfunction, with charge, airflow and control conditions separated where relevant; high superheat alone does not condemn the device",
+        "What findings separate a metering-device failure from charge, airflow or another refrigerant-flow problem?"),
+}
+
+
+def refrigerant_evidence_review(item, source_text="", question=None):
+    definition = REFRIGERANT_EVIDENCE.get(subject_kind(item.subject))
+    if not definition or diagnostic_only_scope(source_text):
+        return None  # An investigation fee is not an already-proposed repair.
+    if subject_kind(item.subject) == COIL and re.search(r"evaporator coil", source_text, re.I):
+        question = question or "What evidence ties the refrigerant leak or failure to the evaporator coil being replaced?"
+    if (subject_kind(item.subject) == CONDITION and item.diagnostic_evidence_status == "INCOMPLETE"
+            and item.documented_evidence):
+        definition = replace(definition, expected_evidence=
+            "an equipment- and condition-specific interpretation of the recorded refrigerant readings, with any still-needed charge/airflow distinction explained")
+        question = question or "What interpretation of the recorded readings establishes the refrigerant fault and supports the proposed repair?"
+    review = review_repair_evidence(item, definition, source_text, question)
+    if item.diagnostic_evidence_status == "ABSENT" and not item.documented_evidence:
+        coil = "evaporator coil" if re.search(r"evaporator coil", source_text, re.I) else "coil"
+        missing = {
+            CONDITION: "The quote does not document an equipment-specific interpretation of refrigerant measurements supporting the proposed work.",
+            COIL: f"The quote does not document a leak or failure finding tied to the {coil} being replaced.",
+            METERING: "The quote does not document flow or component-test findings separating metering-device failure from a charge, airflow or other restriction problem.",
+        }
+        review = replace(review, missing_information=missing[subject_kind(item.subject)])
+    return review
 
 REFRIGERANT_SYSTEM_RULES = """
 REFRIGERANT SYSTEM — DIAGNOSIS AND PROPOSED WORK
@@ -100,7 +137,7 @@ def subject_kind(value):
     s = str(value or "").lower()
     if value in SUBJECTS:
         return value
-    if re.search(r"equipment match|compatib|system siz|duct|airflow|blower|compressor|startup|commission|pricing|cost", s):
+    if re.search(r"equipment match|compatib|system siz|duct|airflow|blower|compressor|\bmotor\b|\bECM\b|inducer|condenser[- ]fan|startup|commission|pricing|cost", s, re.I):
         return None
     if re.search(r"txv|piston|metering|refrigerant.flow|refrigerant restriction|^restriction$", s):
         return METERING

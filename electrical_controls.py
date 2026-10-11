@@ -1,10 +1,12 @@
 """Component electrical evidence. No verdict, pricing, or motor-failure policy."""
 import re
+from dataclasses import replace
 from decimal import Decimal
 from compressor import compressor_items, compressor_question, compressor_normal_after_start_repair, partial_voltage_drop
 from refrigerant_system import refrigerant_items, subject_kind, CONDITION
 from pricing import MAJOR_CHARGE_ITEMIZATION_REQUEST
 from evidence_sufficiency import proposed_work_facts
+from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
 
 
 ELECTRICAL_CONTROLS_RULES = """
@@ -46,6 +48,18 @@ unsubmitted measurements. Generic no-start/no-cooling symptoms do not prove fail
 CONTROL BOARD REPAIRS: correct required power/input and call present, expected output
 absent, confirmed damage tied to failure, or a supplied manufacturer criterion met may
 isolate the board. "Board has power but unit doesn't work" alone does not.
+CONTROL TRANSFORMER / LOW-VOLTAGE POWER: a blank thermostat or missing control voltage
+downstream does not identify the failed component. Do not blame the transformer,
+board, fuse, wiring, safety switch or contactor from that symptom alone. Confirmed
+primary/input power with unmeasured secondary output is INCOMPLETE + PARTIALLY_DEFINED.
+Confirmed power reaching the transformer and measured absent secondary output can
+directly support transformer replacement (CONFIRMED + APPROPRIATE). Neither check
+documented means ABSENT + UNSUPPORTED, not a contradiction. Keep one transformer
+assessment/question; do not create other component diagnoses from lost control power.
+Use only submitted readings: never supply nominal primary/secondary voltage, VA rating,
+resistance, continuity, fuse status, terminals, damage or fault codes. Explain the
+input/output findings in natural language, not repeated raw field labels. This evidence
+supports the transformer diagnosis, not an invented cause of its failure.
 Switches: evaluate state/continuity under the documented required condition; a fault
 code alone does not prove a bad switch. Flame sensors: compare actual flame-signal/current
 with submitted criteria or other direct failure evidence, not flame dropout alone.
@@ -81,13 +95,114 @@ COMPONENTS = {
     "contactor": r"contactor",
     "relay": r"(?:sequencer|(?:time[- ]delay )?relay)",
     "control board": r"(?:(?:furnace |defrost |fan )?control board|defrost board)",
-    "transformer": r"transformer",
+    "transformer": r"(?:(?:control |low[- ]voltage )*transformer)",
     "pressure switch": r"pressure[- ]switch",
     "limit switch": r"(?:high[- ]limit|limit|safety)[- ]switch",
     "flame sensor": r"flame[- ]sensor",
     "igniter": r"(?:(?:hot[- ]surface )?ignit[eo]r)",
-    "low-voltage control": r"low[- ]voltage (?:control|wiring|component)",
+    "low-voltage control": r"low[- ]voltage (?:control|wiring|component)\b(?!\s+transformer)",
 }
+
+# Educational evidence examples only. Existing _facts() owns classification.
+CONTROL_EVIDENCE_EXAMPLES = {
+    "capacitor": "a capacitance reading compared with the labeled rating and supplied tolerance, or documented direct physical failure such as rupture or leakage",
+    "contactor": "the control voltage reaching the coil and the contactor's response, or documented contact damage, a failed contact test or excessive closed-contact voltage drop",
+    "relay": "the control input reaching the relay and its switching response, or a documented contact or function-test failure",
+    "control board": "the required power and control call reaching the board with the expected output missing or abnormal; load or connected-component checks matter when they could explain that output",
+    "transformer": "primary power reaching the transformer and its measured secondary output; checks of the downstream control circuit matter when needed to separate transformer failure from another control-power problem",
+    "pressure switch": "the switch state or continuity under the required draft conditions, with inducer, venting, airflow or condensate findings considered where relevant; an open switch alone does not prove switch failure",
+    "limit switch": "the switch state compared with the documented temperature or safety condition; a switch responding to that condition is not by itself a failed switch",
+    "flame sensor": "the measured flame signal compared with supplied equipment criteria while flame is present, or another direct sensor-failure finding",
+    "igniter": "a direct crack or open-circuit finding, or measured resistance, current or input voltage interpreted using the supplied igniter criteria",
+    "low-voltage control": "control power and signals traced to the proposed component with its response documented; missing control voltage elsewhere does not identify which component failed",
+}
+
+CONTROL_MISSING_EVIDENCE = {
+    "capacitor": "The quote does not document a capacitance reading compared with the labeled rating/tolerance or a direct physical failure of the capacitor.",
+    "contactor": "The quote does not document the control voltage at the contactor coil and its response, or a contact test showing failure.",
+    "relay": "The quote does not document the relay's control input and switching response, or a contact test showing failure.",
+    "control board": "The quote does not document the board's power, required control call and output, or another direct board-failure finding.",
+    "transformer": "The quote does not document the transformer's primary-input voltage, secondary-output voltage, or other testing showing that the transformer itself is the failed component.",
+    "pressure switch": "The quote does not document the pressure switch's response under the required draft conditions or findings separating switch failure from another condition keeping it open.",
+    "limit switch": "The quote does not document the limit switch's response compared with the temperature or safety condition it was sensing.",
+    "flame sensor": "The quote does not document a flame-signal reading compared with the equipment criteria or another direct sensor-failure finding.",
+    "igniter": "The quote does not document a direct igniter-failure finding or electrical test interpreted against the supplied igniter criteria.",
+    "low-voltage control": "The quote does not document control power and signals at the proposed component or its response to those inputs.",
+}
+
+# General educational context only: never a submitted measurement or a source
+# fact. This copy is used only for the ABSENT-evidence presentation branch.
+TRANSFORMER_EXPECTED_EVIDENCE = (
+    "A technician should verify that the transformer is receiving its rated primary voltage and measure "
+    "the secondary/control-voltage output. HVAC control transformers commonly provide about 24 VAC on the secondary side. "
+    "If secondary voltage is low or absent, the contractor may also need to check the downstream 24-volt circuit "
+    "for a short or excessive load before determining that the transformer itself has failed."
+)
+
+
+def electrical_evidence_review(item, source_text=""):
+    name = component_subject(item.subject)
+    if name not in CONTROL_EVIDENCE_EXAMPLES:
+        return None
+    examples, question = CONTROL_EVIDENCE_EXAMPLES[name], electrical_question(item)
+    missing = ""
+    evidence = " ".join(item.documented_evidence)
+    if name == "control board" and re.search(r"defrost (?:control )?board", source_text + " " + item.subject, re.I):
+        examples = "power and required inputs at the defrost board, applicable sensor findings and the board's output during the documented defrost sequence; an icing symptom alone does not establish board failure"
+    if item.diagnostic_evidence_status == "ABSENT":
+        missing = CONTROL_MISSING_EVIDENCE[name]
+        if name == "transformer":
+            question = (
+                "What primary and secondary voltages were measured at the control transformer, and if the secondary voltage "
+                "was low or absent, was the 24-volt circuit checked for a short or excessive load before the transformer was condemned?")
+        elif name in {"contactor", "relay"}:
+            question = f"What control input and switching-response or contact-test results show that the {name} itself has failed?"
+    if item.diagnostic_evidence_status == "INCOMPLETE":
+        if name == "transformer" and _transformer_observations(item.documented_evidence)["primary"]:
+            examples = "the missing secondary-output measurement while the documented primary power was present"
+            missing = "The quote does not show the transformer secondary output measured while primary power was present."
+            measured_low = any(_actual(s) and re.search(
+                r"transformer.*(?:secondary|output).*(?:measured|tested).*(?:\blow\b|below (?:the )?(?:rated|specified))", s, re.I)
+                and not re.search(r"\b(?:not|never|no)\b", s, re.I) for s in item.documented_evidence)
+            if ((_transformer_observations(item.documented_evidence)["absent_secondary"] or measured_low)
+                    and re.search(r"downstream|short|excessive load", " ".join(item.material_gaps), re.I)):
+                # Consume an already-PARTIAL assessment; never add a downstream
+                # requirement to the existing supported input/output boundary.
+                examples = "the remaining downstream-circuit findings needed to distinguish the documented output problem from a short or excessive load"
+                missing = "The quote does not document the downstream control-circuit check identified as the remaining gap in this diagnosis."
+                question = "Was the control transformer's downstream 24-volt circuit checked for a short or excessive load that could explain the documented output problem?"
+        elif name in {"contactor", "relay"} and not _switching_observations(item.documented_evidence, name)["coil"]:
+            examples = f"the missing control-voltage check at the {name} coil during the documented call, separating a missing input from failed switching"
+        elif name == "capacitor" and re.search(r"measured.*(?:µF|μF|MFD|microfarad)", evidence, re.I):
+            examples = "the labeled tolerance needed to interpret the capacitance measurement already in the quote"
+        elif name == "control board" and re.search(r"(?:power|voltage).*(?:present|confirmed)", evidence, re.I):
+            call = re.search(r"thermostat call.*(?:present|confirmed)", evidence, re.I)
+            examples = ("the expected output during the documented thermostat call" if call else
+                        "the thermostat call reaching the powered board and the board's output during that call")
+            question = ("What output testing showed that the control board itself failed during the documented thermostat call?" if call else
+                        "Was the thermostat call reaching the control board, and what output did the board produce during that call?")
+    definition = RepairEvidenceDefinition("electrical_" + name.replace(" ", "_"), name,
+        examples, question)
+    review = review_repair_evidence(item, definition, source_text)
+    if name == "transformer" and item.diagnostic_evidence_status == "ABSENT":
+        review = replace(review, evidence_explanation=TRANSFORMER_EXPECTED_EVIDENCE)
+    elif name in {"contactor", "relay"} and item.diagnostic_evidence_status == "ABSENT":
+        review = replace(review, evidence_explanation=(
+            f"A technician should normally verify that the {name} is receiving the proper control voltage "
+            "and then confirm how it responds. Damaged contacts, a failed contact test, or excessive voltage drop "
+            f"across closed contacts can also support a failed-{name} diagnosis."))
+    elif (name in {"contactor", "relay"} and item.diagnostic_evidence_status == "INCOMPLETE"
+            and not _switching_observations(item.documented_evidence, name)["coil"]):
+        review = replace(review, evidence_explanation=(
+            f"The remaining check is whether control voltage was reaching the {name} coil during that call. "
+            f"That separates a missing control signal from a {name} that is not responding to it."))
+    elif name == "transformer" and item.diagnostic_evidence_status == "INCOMPLETE" and missing:
+        review = replace(review, evidence_explanation=(
+            "The remaining question is how the downstream control circuit was evaluated for a short or excessive load "
+            "that could explain the output problem." if "downstream" in missing else
+            "With primary power already documented, the contractor needs to show the secondary-output measurement "
+            "to explain whether the transformer is supplying control voltage."))
+    return replace(review, missing_information=missing)
 
 
 def source_lines(text):
@@ -229,6 +344,45 @@ def _switching_observations(lines, component):
                 failed=list(dict.fromkeys(failed)), normal=list(dict.fromkeys(normal)))
 
 
+def _transformer_observations(lines):
+    """Keep transformer input/output checks separate from downstream symptoms.
+
+    Unlabeled primary/secondary continuations are usable only in an unambiguous
+    transformer record. Another component's power cannot supply this evidence.
+    """
+    found = {key: [] for key in ("primary", "absent_secondary", "normal_secondary")}
+    unambiguous = set(components_in(" ".join(lines))) == {"transformer"}
+    for line in lines:
+        if re.search(r"\b(?:will|would|should|could|may|might|if|suspect\w*|recommend\w*)\b|"
+                     r"^(?:example|hypothetical)\b", line, re.I):
+            continue
+        for clause in re.split(r";\s*|(?<=[.!?])\s+|\bbut\b|"
+                               r",?\s+and\s+(?=(?:(?:the )?transformer )?(?:primary|input|secondary|output)\b)", line, flags=re.I):
+            names = set(components_in(clause))
+            if not _actual(clause.strip()) or names - {"transformer"}:
+                continue
+            if re.search(r"\b(?:unconfirmed|unmeasured|unknown)\b|"
+                         r"\b(?:not|never)\s+(?:been |actually )?(?:confirmed|measured|tested|documented)\b", clause, re.I):
+                continue
+            if "transformer" not in names and not unambiguous:
+                continue
+            checked = bool(re.search(r"\b(?:confirmed|measured|tested|documented)\b", clause, re.I))
+            affirmed = not re.search(r"\b(?:no|not|absent|missing|unconfirmed|unknown)\b", clause, re.I)
+            secondary = re.search(r"\b(?:secondary|output)\b", clause, re.I)
+            primary = re.search(r"\b(?:primary|input)\b", clause, re.I) or (not secondary and re.search(
+                r"transformer power|power (?:at|to|reaching) (?:the )?(?:control )?transformer", clause, re.I))
+            power = re.search(r"\b(?:power|voltage|volts?)\b", clause, re.I)
+            if checked and affirmed and primary and power and re.search(r"\bpresent\b", clause, re.I):
+                found["primary"].append(clause.strip())
+            # Missing voltage downstream is not a measured transformer output.
+            if secondary and checked and not re.search(r"\bdownstream\b", clause, re.I):
+                if re.search(r"\b(?:absent|missing|not present)\b|\bno (?:secondary |control )?(?:output|voltage)\b", clause, re.I):
+                    found["absent_secondary"].append(clause.strip())
+                elif affirmed and re.search(r"\b(?:present|normal|correct)\b", clause, re.I):
+                    found["normal_secondary"].append(clause.strip())
+    return {key: list(dict.fromkeys(values)) for key, values in found.items()}
+
+
 def _facts(component, text):
     lines = source_lines(text)
     actual = [s for s in lines if _actual(s)]
@@ -267,14 +421,21 @@ def _facts(component, text):
         if supported:
             conflict = False
         evidence = list(dict.fromkeys([*evidence, *switching["call"], *switching["coil"], *switching["failed"]]))
-    elif component in {"control board", "transformer", "low-voltage control"}:
+    elif component == "transformer":
+        transformer = _transformer_observations(lines)
+        supported = bool(transformer["primary"] and transformer["absent_secondary"]
+                         and not transformer["normal_secondary"])
+        conflict = bool(transformer["primary"] and transformer["normal_secondary"]
+                        and not transformer["absent_secondary"])
+        evidence = list(dict.fromkeys(value for values in transformer.values() for value in values))
+    elif component in {"control board", "low-voltage control"}:
         powered = re.search(r"(?:correct|required|proper|rated).*(?:power|voltage|input).*(?:present|confirmed|measured)|"
                             r"(?:power|voltage|input).*(?:correct|proper|rated)", joined, re.I)
         call = any(re.search(r"(?:required |thermostat )?(?:call|command|input signal).*(?:present|confirmed)", s, re.I)
                    and not re.search(r"\b(?:no|not|absent|missing)\b", s, re.I) for s in related)
         powered = powered and not re.search(r"(?:power|voltage|input).*(?:not present|not confirmed|absent)", joined, re.I)
         absent = re.search(r"(?:expected|required) output.*(?:absent|missing|not present)|no (?:expected|required) output", joined, re.I)
-        supported = bool(powered and absent and (call or component == "transformer"))
+        supported = bool(powered and absent and call)
         supported |= any(re.search(r"confirmed.*(?:board damage|burned circuit).*(?:output|failure)", s, re.I)
                          and not re.search(r"\b(?:no|not)\b", s, re.I) for s in related)
         conflict = not supported and bool(re.search(r"required input.*expected output.*(?:both )?(?:operate|function).*correctly", joined, re.I))
@@ -307,6 +468,8 @@ def _facts(component, text):
         meaningful = bool(switching["coil"] or (switching["call"] and switching["failed"]) or any(
             re.search(r"measur|tested|intermittent|pitt|burn", s, re.I)
             and not re.search(r"\b(?:no|not|unconfirmed|unknown)\b", s, re.I) for s in evidence))
+    if component == "transformer":
+        meaningful = bool(evidence)
     if component == "flame sensor" and re.search(r"burners.*(?:shut off|drop out)|flame drops out", text, re.I):
         observations = [s for s in actual if re.search(r"burners.*(?:shut off|drop out)|flame drops out", s, re.I)]
         evidence += observations
@@ -319,6 +482,8 @@ def _facts(component, text):
     gaps = [] if supported or conflict else [f"The quote does not show findings isolating failure of the {component}."]
     if component in {"contactor", "relay"} and status == "INCOMPLETE" and not switching["coil"]:
         gaps = [f"The quote does not confirm control voltage at the {component} coil during the call."]
+    if component == "transformer" and status == "INCOMPLETE":
+        gaps = ["The quote does not show the transformer secondary output measured while primary power was present."]
     return dict(subject=PREFIX + component, materiality="PRIMARY", diagnostic_evidence_status=status,
                 scope_support=scope, documented_evidence=list(dict.fromkeys(evidence)),
                 contradictions=[f"The submitted {component} test shows normal behavior despite the failure claim."] if conflict else [],
@@ -362,7 +527,7 @@ def normalize_electrical_assessments(analysis, text, assessment_type, classifica
             e.strip().casefold() in text.casefold() and _actual(e) for e in a.documented_evidence)
             and re.search(r"criterion|criteria|isolat|failed.*(?:function|test)|documented.*(?:damage|physical)",
                           " ".join(a.documented_evidence), re.I)]
-        if (facts["diagnostic_evidence_status"] == "INCOMPLETE" and grounded
+        if (component != "transformer" and facts["diagnostic_evidence_status"] == "INCOMPLETE" and grounded
                 and any(a.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"} for a in grounded)):
             chosen = grounded[0].model_copy(update={"subject": facts["subject"], "materiality": "PRIMARY"})
         else:
@@ -396,6 +561,10 @@ def electrical_question(item):
     if item.diagnostic_evidence_status == "CONTRADICTORY":
         return f"What other finding supports replacing the {name} given the documented normal test result?"
     evidence = " ".join(item.documented_evidence)
+    if name == "transformer":
+        if item.diagnostic_evidence_status == "INCOMPLETE":
+            return "What voltage was measured on the transformer secondary while primary power was present?"
+        return "What testing showed that the control transformer itself has failed?"
     if name in {"contactor", "relay"}:
         if item.diagnostic_evidence_status == "INCOMPLETE":
             if not _switching_observations(item.documented_evidence, name)["coil"]:
@@ -482,7 +651,25 @@ def _supported_switching_copy(item):
     return " ".join([evidence, *additional])
 
 
+def _supported_transformer_copy(item):
+    """Translate submitted input/output evidence without adding nominal readings."""
+    if component_subject(item.subject) != "transformer" or unresolved(item):
+        return None
+    observations = _transformer_observations(item.documented_evidence)
+    if not observations["primary"] or not observations["absent_secondary"]:
+        return None
+    # Keep additional submitted numeric/details intact; simple field-style facts
+    # are replaced, rather than repeated alongside the readable explanation.
+    simple = set(observations["primary"] + observations["absent_secondary"])
+    additional = [s for s in item.documented_evidence if s not in simple or re.search(r"\d", s)]
+    return " ".join([
+        "The technician confirmed that power was reaching the transformer and measured no secondary output.",
+        *additional, "Those findings support replacing the transformer."])
+
+
 def electrical_good_sign(item):
+    if _supported_transformer_copy(item):
+        return "The quote documents power reaching the transformer and a measured lack of output, supporting the transformer diagnosis."
     if _supported_switching_copy(item):
         name = component_subject(item.subject)
         return f"The quote documents control voltage reaching the {name} coil and the {name} failing to respond to the call."
@@ -494,9 +681,65 @@ def electrical_good_sign(item):
 
 
 def electrical_paragraphs(analysis):
-    return [_supported_switching_copy(item) or _supported_board_input_output_copy(item)
+    return [_supported_transformer_copy(item) or _supported_switching_copy(item) or _supported_board_input_output_copy(item)
             or " ".join([*item.documented_evidence, conclusion(item)])
             for item in electrical_items(analysis)]
+
+
+def finalized_electrical_evidence(item, review):
+    """Detailed evidence only; the diagnosis and gaps have their own fields."""
+    if review.supported:
+        return (_supported_transformer_copy(item) or _supported_switching_copy(item)
+                or _supported_board_input_output_copy(item)
+                or " ".join([*review.documented_evidence, conclusion(item)]))
+    return " ".join([*review.documented_evidence, review.evidence_explanation])
+
+
+def present_isolated_electrical_repair(analysis, text, reviews):
+    """Presentation only, after policy and question assembly. No result writes."""
+    items = electrical_items(analysis)
+    if (len(items) != 1 or not isolated_electrical_work(analysis, text)
+            or len(re.findall(r"(?m)^\s*QUOTE \d+", text)) > 1):
+        return
+    item = items[0]
+    name = component_subject(item.subject)
+    review = next((r for r in reviews if r.definition.key == "electrical_" + name.replace(" ", "_")), None)
+    if name == "transformer":
+        amounts = set(re.findall(r"\$\s*\d[\d,]*(?:\.\d{2})?", text))
+        price = " for " + next(iter(amounts)).replace(" ", "") if len(amounts) == 1 else ""
+        analysis.project_overview = f"The quote proposes replacing the control transformer{price}."
+    if not review:
+        return
+    # This isolated diagnosis has no additional domain interpretation: the
+    # generated takeaway restates its evidence, conclusion and approval action.
+    # Mixed-project interpretations bypass this branch.
+    analysis.homeowner_takeaway = ""
+    if review.supported:
+        return  # Existing GOOD copy credits the documented evidence.
+    component = "control transformer" if name == "transformer" else name
+    if item.diagnostic_evidence_status == "ABSENT":
+        analysis.equipment_analysis = (
+            f"A failed {component} is possible, but the diagnosis is not adequately supported by the information provided.")
+    elif item.diagnostic_evidence_status == "INCOMPLETE":
+        analysis.equipment_analysis = f"The documented findings point toward the {component}, but do not yet isolate it as the failed component."
+    # CONTRADICTORY keeps its precise normal-test-versus-replacement explanation.
+    if name == "transformer" and item.diagnostic_evidence_status == "ABSENT":
+        analysis.banner_explanation = (
+            "The quote recommends replacing the control transformer, but does not document enough electrical testing "
+            "to confirm the transformer itself has failed.")
+    # Keep the same flag count and ownership, with a shorter summary.
+    if item.diagnostic_evidence_status == "ABSENT" and len(analysis.red_flags) == 1:
+        analysis.red_flags = [f"{component.capitalize()} replacement is recommended without documented failure evidence."]
+    if name == "transformer":
+        if analysis.decision.verdict == "GET_A_SECOND_OPINION":
+            analysis.bottom_line = "Ask for the missing electrical test results or get a second opinion before approving the transformer replacement."
+        else:
+            analysis.bottom_line = "Ask for the remaining transformer test results before approving the replacement."
+    else:
+        analysis.bottom_line = (
+            f"Ask for the missing {name} test results or get a second opinion before approving the replacement."
+            if analysis.decision.verdict == "GET_A_SECOND_OPINION" else
+            f"Have the contractor confirm the {name} diagnosis before approving the repair.")
 
 
 def finalize_electrical_fields(analysis, text):
@@ -521,7 +764,7 @@ def finalize_electrical_fields(analysis, text):
         if unresolved(item):
             if name == "control board" and item.diagnostic_evidence_status == "INCOMPLETE":
                 gaps.append("The quote does not show the input/output testing needed to confirm that the control board itself has failed.")
-            elif name in {"contactor", "relay"} and item.diagnostic_evidence_status == "INCOMPLETE":
+            elif name in {"contactor", "relay", "transformer"} and item.diagnostic_evidence_status == "INCOMPLETE":
                 gaps.extend(item.material_gaps)
             else:
                 gaps.append(f"The quote does not show what finding supports replacing the {name}." if item.diagnostic_evidence_status != "CONTRADICTORY"
@@ -548,8 +791,10 @@ def finalize_electrical_fields(analysis, text):
         # source instead of allowing invented AI measurements in neighboring fields.
         names_text = " and ".join(component_subject(a.subject) for a in items)
         analysis.project_overview = f"The quote proposes replacing the {names_text}."
-        scope = [s for s in source_lines(text) if re.match(r"(?:replace|remove|install|reconnect|verify|operate|confirm|measure|test)\b", s, re.I)]
-        analysis.installation_concerns = " ".join(scope) or f"The stated scope is {names_text} replacement."
+        # An isolated component diagnosis has no separate assessed scope issue.
+        # Don't label the quoted work/price or routine included tasks a concern.
+        # Independent scope assessments bypass this isolated-work branch.
+        analysis.installation_concerns = ""
         analysis.red_flags = [conclusion(a) for a in items if a.scope_support == "UNSUPPORTED"]
         analysis.good_signs = [electrical_good_sign(a) for a in items if not unresolved(a) and a.documented_evidence]
         analysis.decision.required_actions = [f"Ask for the evidence supporting {component_subject(a.subject)} replacement before approving that work."
@@ -610,6 +855,16 @@ def compose_electrical_summary(analysis, quote_text=""):
                 analysis.bottom_line += " Get a second opinion before approving the unsupported work."
             return
     if not items or any(a not in items and a.materiality != "MINOR" for a in analysis.technical_assessments):
+        return
+    if (len(items) == 1 and _supported_transformer_copy(items[0])
+            and isolated_electrical_work(analysis, quote_text)
+            and analysis.decision.technical_support == "SUPPORTED"
+            and analysis.decision.verdict in {"PROCEED", "REVIEW_BEFORE_APPROVING"}):
+        action = (" Before approving the work, ask for an itemized breakdown of the quoted total."
+                  if analysis.decision.verdict == "REVIEW_BEFORE_APPROVING"
+                  and analysis.decision.pricing_transparency in {"LIMITED", "ABSENT"} else "")
+        analysis.homeowner_takeaway = "The documented input and output checks support replacing the control transformer." + action
+        analysis.bottom_line = "The control-transformer replacement is technically supported." + action
         return
     if (len(items) == 1 and _supported_switching_copy(items[0])
             and isolated_electrical_work(analysis, quote_text)

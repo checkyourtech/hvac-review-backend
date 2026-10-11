@@ -1,7 +1,29 @@
 """Compressor-failure evidence and customer ownership; no verdict policy here."""
 import re
+from dataclasses import replace
+from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
 
 COMPRESSOR_SUBJECT = "Claimed compressor failure"
+COMPRESSOR_EVIDENCE = RepairEvidenceDefinition(
+    "compressor_evidence", "compressor",
+    "a direct isolated winding or insulation/ground-test failure, or supply/start checks and current or mechanical pumping findings that isolate the compressor; a starting-component failure alone does not establish compressor failure",
+    "What evidence shows that the compressor itself has failed and still needs replacement?")
+
+
+def compressor_evidence_review(item, source_text="", question=None):
+    definition = COMPRESSOR_EVIDENCE
+    evidence = " ".join(item.documented_evidence)
+    if item.diagnostic_evidence_status == "INCOMPLETE" and re.search(r"voltage.{0,20}drop", evidence, re.I):
+        definition = replace(definition, expected_evidence=
+            "findings isolating the cause of the recorded start-attempt voltage drop, separating compressor failure from its starting components or supply")
+    review = review_repair_evidence(item, definition, source_text, question)
+    if item.diagnostic_evidence_status == "ABSENT" and not item.documented_evidence:
+        review = replace(review, missing_information=(
+            "The quote does not document a compressor-specific winding, insulation/grounding or mechanical failure finding, "
+            "or other testing separating compressor failure from supply or starting-component problems."))
+    return review
+
+
 COMPRESSOR_RULES = """
 COMPRESSOR EVIDENCE AND PROPOSED WORK
 Does the submitted proposal provide enough evidence that the compressor has failed
