@@ -1,0 +1,34 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Indoor blower is not running. System is not moving air in heating or cooling.
+
+Diagnosis:
+Failed ECM blower motor/module.
+
+Diagnostic findings:
+- 240 volts measured at the blower motor power input.
+- 24-volt blower command verified from the control board during a fan call.
+- Blower harness and connectors inspected and found secure with no visible damage.
+- Blower wheel spins freely by hand with no obstruction or seized bearings.
+- Manufacturer diagnostic procedure performed.
+- ECM motor/module receives proper power and control command but does not operate.
+- Control board output verified normal.
+- No other electrical faults found during testing.
+
+Recommended repair:
+Replace failed ECM blower motor/module with OEM-compatible replacement.
+
+Scope of work:
+- Remove failed ECM blower motor/module
+- Install compatible replacement motor/module
+- Verify wiring and connectors
+- Configure blower speed/airflow settings as required
+- Verify blower operation in heating, cooling, and fan-only modes
+- Confirm normal system operation after repair
+
+Total repair price: $1,650
+
+Parts and labor included.
+
+1-year parts and labor warranty.

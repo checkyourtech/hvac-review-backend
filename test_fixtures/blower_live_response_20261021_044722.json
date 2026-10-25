@@ -1,0 +1,94 @@
+{
+  "project_overview": "The contractor recommends replacing the blower motor, but the quote does not document findings that establish motor failure.",
+  "equipment_analysis": "The quote does not establish the claimed blower motor failure.",
+  "missing_information": "The quote does not document findings that establish blower motor failure.",
+  "pricing_review": "The total repair cost is $1,650, which includes both parts and labor. However, the price is presented as a lump sum without an itemized breakdown of the costs. This limits transparency on whether the pricing for parts and labor is reasonable or not.",
+  "installation_concerns": "The proposed scope of work outlines the removal of the existing motor and the installation of the new one. However, it does not specify any verification steps for airflow or control function after completion. It's essential to confirm that the system operates correctly once the new motor is installed.",
+  "quote_comparison": "This is the only quote submitted for this repair. Comparisons can't be made as no alternatives have been provided.",
+  "best_quote_recommendation": "As this is the only quote, there's no alternative to recommend.",
+  "contractor_vetting": "There is no mention of the contractor's licensing, insurance, or reputation in the proposal, which would be beneficial to verify.",
+  "red_flags": [
+    "The quote recommends blower motor work without findings that establish the claimed failure."
+  ],
+  "good_signs": [
+    "The proposal includes a clear scope of work detailing the replacement of the blower motor, along with a 1-year parts and labor warranty on the repair.",
+    "The quoted repair scope includes motor removal, motor installation, blower reassembly and planned system operation testing."
+  ],
+  "contractor_questions": [
+    "What motor or module testing showed that the blower itself failed rather than its power or control supply?",
+    "What verification steps will you take after the new motor is installed to ensure proper operation?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $1,650 total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Why: The diagnosis of the blower motor being bad is not sufficiently supported by documented evidence.; The total price lacks itemization, making it hard to assess value. Before approving: Request verification on the blower motor diagnosis through specific testing or evidence.; Ask for an itemized breakdown of the total cost to understand parts versus labor.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Request verification on the blower motor diagnosis through specific testing or evidence.",
+      "Ask for an itemized breakdown of the total cost to understand parts versus labor."
+    ],
+    "optional_suggestions": [
+      "Consider getting a second opinion from another contractor to verify the diagnosis and the proposed repair."
+    ],
+    "verdict_reasons": [
+      "The diagnosis of the blower motor being bad is not sufficiently supported by documented evidence.",
+      "The total price lacks itemization, making it hard to assess value."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "total",
+          "label": "Total repair price",
+          "amount": 1650.0,
+          "currency": "USD",
+          "source_text": "Total repair price: $1,650"
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "failure_driven",
+  "technical_assessments": [
+    {
+      "subject": "Blower Motor Failure Diagnosis",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "The quote does not document findings that establish blower motor failure."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern.",
+  "bottom_line": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward.",
+  "analysis_integrity": {
+    "status": "COMPLETE",
+    "coverage_gaps": []
+  },
+  "repair_evidence_sections": [
+    {
+      "owner": "repair",
+      "title": "What Evidence Should Support This Diagnosis?",
+      "paragraphs": [
+        "The contractor can support the blower motor diagnosis with proper power and the applicable control command at the motor, together with motor/module response or direct winding, grounding or mechanical findings; capacitor checks apply only to motors that use one."
+      ]
+    }
+  ]
+}

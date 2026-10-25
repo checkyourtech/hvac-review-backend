@@ -285,14 +285,15 @@ class CompressorTests(unittest.TestCase):
         item = assessment("CONFIRMED", subject=cp.COMPRESSOR_SUBJECT,
             evidence=["Submitted manufacturer bulletin K specifies this measured winding pattern as failure."])
         original = analysis_with([item])
-        final = main.finalize_customer_analysis(original, "Replace compressor.\nManufacturer startup procedure and document final readings.", 1)
+        final = main.finalize_customer_analysis(original, "Replace compressor.\n" + item.documented_evidence[0]
+            + "\nManufacturer startup procedure and document final readings.", 1)
         self.assertEqual(cp.compressor_items(final)[0].documented_evidence, item.documented_evidence)
         self.assertEqual(cp.compressor_items(final)[0].scope_support, "APPROPRIATE")
 
     def test_real_structured_conflict_not_erased_by_source_support(self):
         item = assessment("CONTRADICTORY", "UNSUPPORTED", subject=cp.COMPRESSOR_SUBJECT,
             contradictions=["The proposed replacement is a different compressor from the one tested."])
-        final = main.finalize_customer_analysis(analysis_with([item]), source("good"), 1)
+        final = main.finalize_customer_analysis(analysis_with([item]), source("good") + "\n" + item.contradictions[0], 1)
         self.assertEqual(cp.compressor_items(final)[0].scope_support, "UNSUPPORTED")
 
     def test_bare_supported_ai_assessment_cannot_pass_unsupported_source(self):

@@ -106,7 +106,8 @@ Installation materials: $200'''
         self.assertIsNone(evaluate_market_price(final.price_facts).expected_high)
 
     def test_lump_sum_policy_and_voice(self):
-        final = main.finalize_customer_analysis(analysis(pricing='LIMITED'), 'Repair total: $950')
+        # Pricing-only legacy unit object, not a complete fresh technical review.
+        final = main.finalize_customer_analysis(analysis(pricing='LIMITED'), 'Repair total: $950', fresh_analysis=False)
         self.assertEqual(final.decision.pricing_transparency, 'LIMITED')
         self.assertEqual(len(final.contractor_questions), 1)
         text = customer_pricing_text('The pricing components show an allocation of costs. Pricing transparency is adequate.')

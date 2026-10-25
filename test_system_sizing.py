@@ -203,7 +203,7 @@ class SizingCalibrationTests(SizingOnlyTests):
         for evidence in ("Manual J included.", "Manual J will be completed before final equipment selection.",
                          "Exact capacity and models are pending."):
             with self.subTest(evidence=evidence):
-                final = self.finalize(sizing(evidence=[evidence]), evidence)
+                final = main.finalize_customer_analysis(analysis(sizing(evidence=[evidence])), evidence)
                 self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
                 self.assertEqual(len(final.contractor_questions), 1)
                 self.assertEqual(final.red_flags, [])
@@ -226,7 +226,7 @@ class SizingCalibrationTests(SizingOnlyTests):
     def test_submitted_conflict_remains_unsupported(self):
         conflict = "Same-project sizing document selects C36 at 3 tons, but the quote proposes C60 at 5 tons without explanation."
         raw = sizing("CONTRADICTORY", "UNSUPPORTED", contradictions=[conflict])
-        final = self.finalize(raw, fixture("bad"))
+        final = self.finalize(raw, fixture("bad") + "\n" + conflict)
         self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
         self.assertEqual(final.decision.verdict, "GET_A_SECOND_OPINION")
         self.assertEqual(main.sizing_assessments(final)[0].contradictions, [conflict])
@@ -478,6 +478,8 @@ class SizingPresentationTests(SizingOnlyTests):
                                    ("elective", "ADEQUATE", "APPROPRIATE")):
             with self.subTest(name=name):
                 basis = domain_items()[0].model_copy(update=dict(diagnostic_evidence_status=status, scope_support=scope))
+                if name == "good":
+                    basis.documented_evidence = ["The grounded compressor, system age, repair option, and repair history support replacement."]
                 raw = analysis(basis)
                 if name == "elective":
                     raw.replacement_context = main.ReplacementContext.ELECTIVE
@@ -689,7 +691,7 @@ class SizingGoodAcceptanceRegressionTests(SizingOnlyTests):
     def test_factual_installation_does_not_invent_permits(self):
         raw = self.raw()
         raw.technical_assessments = [raw.technical_assessments[-1]]
-        text = "Remove existing equipment. Install new equipment. Include startup verification. No permits are included."
+        text = "Remove existing equipment. Install new equipment. Include startup verification. No permits are included.\n" + "\n".join(self.evidence)
         final = main.finalize_customer_analysis(raw, quote_text=text)
         self.assertNotIn("permit", final.installation_concerns.lower())
         self.assertIn("startup verification", final.installation_concerns)
@@ -1072,7 +1074,8 @@ class SizingVisibleSectionTests(SizingOnlyTests):
         raw = analysis(sizing("CONTRADICTORY", "UNSUPPORTED", contradictions=[
             "A separate submitted engineer revision identifies a conflicting selection."
         ]))
-        final = main.finalize_customer_analysis(raw, quote_text=fixture("good"))
+        final = main.finalize_customer_analysis(raw, quote_text=fixture("good") + "\n"
+            + raw.technical_assessments[0].contradictions[0])
         self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
 
     def test_no_cross_quote_recovery(self):

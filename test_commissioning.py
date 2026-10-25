@@ -46,7 +46,7 @@ class CommissioningTests(unittest.TestCase):
         from test_technical_support_derivation import analysis_with, assessment
         original = analysis_with([assessment("CONTRADICTORY", "UNSUPPORTED", subject=COMMISSIONING_SUBJECT,
             contradictions=["Required safety verification failed."])])
-        final = main.finalize_customer_analysis(original, "Replace compressor.", 1)
+        final = main.finalize_customer_analysis(original, "Replace compressor. Required safety verification failed.", 1)
         self.assertEqual(commissioning_items(final)[0].scope_support, "UNSUPPORTED")
 
     def test_minor_repairs(self):
@@ -139,7 +139,10 @@ class CommissioningTests(unittest.TestCase):
 
     def test_completed_presentation_cannot_override_domain_conflict(self):
         raw = raw_case("bad")
-        final = main.finalize_customer_analysis(raw, source("documented_results"), 1)
+        # The independent conflict must exist in the submitted source, not just
+        # in the mocked AI answer.
+        final = main.finalize_customer_analysis(raw, source("documented_results") + "\n"
+            + raw.technical_assessments[-1].contradictions[0], 1)
         self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
         self.assertEqual(commissioning_items(final)[0].scope_support, "APPROPRIATE")
         self.assertNotIn("No material issue in these reviewed areas", final.bottom_line)

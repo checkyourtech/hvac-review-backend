@@ -169,7 +169,7 @@ class DuctAirflowTests(unittest.TestCase):
 
     def test_measured_source_does_not_override_structured_contradiction(self):
         raw = raw_case("bad")
-        final = main.finalize_customer_analysis(raw, source("good"), 1)
+        final = main.finalize_customer_analysis(raw, source("good") + "\n" + BAD, 1)
         self.assertEqual(duct_items(final)[0].scope_support, "UNSUPPORTED")
         self.assertTrue(duct_items(final)[0].contradictions)
 
@@ -210,7 +210,8 @@ class DuctAirflowTests(unittest.TestCase):
         raw = raw_case("partial")
         raw.decision.pricing_transparency = "LIMITED"
         raw.contractor_questions = ["Did you verify existing ductwork?", "What measurements support the duct capacity?", "Can you itemize pricing?"]
-        final = main.finalize_customer_analysis(raw, "Existing ducts reused", 1)
+        quote = source("partial").replace("Equipment: $11,000.", "").replace("Labor and installation materials: $7,000.", "")
+        final = main.finalize_customer_analysis(raw, quote, 1)
         self.assertEqual([main.contractor_question_category(q) for q in final.contractor_questions], ["duct_airflow", "pricing"])
 
     def test_independent_findings_preserved(self):
@@ -312,7 +313,7 @@ class DuctAirflowTests(unittest.TestCase):
     def test_sizing_conflict_not_rescued_by_good_ducts(self):
         raw = raw_case("good")
         raw.technical_assessments[2].contradictions = ["The submitted selection conflicts with the quoted cooling capacity."]
-        final = main.finalize_customer_analysis(raw, source("good"), 1)
+        final = main.finalize_customer_analysis(raw, source("good") + "\n" + raw.technical_assessments[2].contradictions[0], 1)
         self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
         self.assertEqual(duct_items(final)[0].scope_support, "APPROPRIATE")
 
@@ -862,7 +863,8 @@ class DuctAirflowTests(unittest.TestCase):
     def test_source_recovery_preserves_independent_conflicting_scope(self):
         raw = raw_case("bad")
         raw.technical_assessments[-1].contradictions.append("The supply duct is disconnected and no repair is proposed.")
-        final = main.finalize_customer_analysis(raw, source("return_restriction"), 1)
+        final = main.finalize_customer_analysis(raw, source("return_restriction") + "\n"
+            + raw.technical_assessments[-1].contradictions[-1], 1)
         self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
         self.assertTrue(any("supply duct" in c for c in duct_items(final)[0].contradictions))
 

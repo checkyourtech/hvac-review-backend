@@ -78,6 +78,8 @@ from repair_diagnostics import (
     REPAIR_DIAGNOSTIC_RULES, RepairEvidenceDefinition, review_repair_evidence,
     apply_repair_evidence_guidance,
     RepairEvidenceSection, REPAIR_EVIDENCE_HEADING, present_isolated_repair_summary,
+    normalize_blower_evidence, normalize_blower_customer_fields,
+    normalize_blower_report_details,
 )
 from compressor import compressor_evidence_review
 from refrigerant_system import refrigerant_evidence_review
@@ -85,6 +87,10 @@ from evidence_sufficiency import (
     EVIDENCE_SUFFICIENCY_RULES, proposed_work_facts, discard_ungrounded_scope_only_claims,
     ensure_primary_evidence_assessment, prepare_scope_only_customer_fields,
     scope_only_questions, summarize_scope_only,
+)
+from evidence_integrity import (
+    AnalysisIntegrity, SourceEvidence, assessment_owner, material_work,
+    ground_assessments, remove_ungrounded_customer_claims, coverage_gaps, recovery_modules,
 )
 
 load_dotenv()
@@ -185,6 +191,7 @@ class HVACAnalysis(BaseModel):
     banner_explanation: str = ""
     homeowner_takeaway: str = ""
     bottom_line: str = ""
+    analysis_integrity: AnalysisIntegrity = Field(default_factory=AnalysisIntegrity)
     repair_evidence_sections: Optional[List[RepairEvidenceSection]] = Field(
         default=None, description="Finalizer-owned customer evidence sections; leave null in the raw analysis."
     )
@@ -590,6 +597,10 @@ Classify the following HVAC quote or quotes:
         classification.modules_required.append(AnalysisModule.SYSTEM_SIZING)
     elif not sizing_required(all_quotes_text, classification):
         classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.SYSTEM_SIZING]
+    for name in sorted(recovery_modules(material_work(all_quotes_text, classification))):
+        module = AnalysisModule(name)
+        if module not in classification.modules_required:
+            classification.modules_required.append(module)
     return classification
 
 LEGACY_ANALYSIS_KNOWLEDGE = {
@@ -2978,6 +2989,10 @@ def get_analysis_knowledge(
     quote_text: str = "",
 ) -> str:
     classification = classification.model_copy(deep=True)
+    for name in sorted(recovery_modules(material_work(quote_text, classification))):
+        module = AnalysisModule(name)
+        if module not in classification.modules_required:
+            classification.modules_required.append(module)
     if motor_work_required(quote_text) and AnalysisModule.MOTORS not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.MOTORS)
     if electrical_required(quote_text) and AnalysisModule.ELECTRICAL_CONTROLS not in classification.modules_required:
@@ -3807,10 +3822,25 @@ def normalize_documented_replacement_startup(
 
 def remove_pricing_transparency_red_flags(analysis: HVACAnalysis) -> None:
     """Keep itemization concerns in pricing fields, never technical red flags."""
+    def routine_transparency(flag):
+        normalized = " ".join(str(flag or "").lower().split())
+        # A flag may mention itemization while documenting a separate pricing
+        # conflict or misconduct. Do not discard that independent concern.
+        if re.search(r"contradict|conflict|inconsisten|mismatch|discrepanc|not add up|"
+                     r"unauthori|undisclosed|mislead|decept|fraud|overcharg|duplicate|double.charg|"
+                     r"\btwice\b|incorrect|arithmet|unsupported|unsafe|unnecessary", normalized):
+            return False
+        return (is_equivalent_itemization_action(flag)
+                or bool(re.search(r"\bbreak[ -]+down\b", normalized)
+                        and re.search(r"pric|cost|parts|labor|charges|equipment", normalized))
+                or bool(re.search(r"\blimited pricing transparency\b|"
+                                  r"\bpricing transparency (?:is |remains )?(?:limited|absent)\b|"
+                                  r"\bpricing lacks transparency\b", normalized)))
+
     analysis.red_flags = [
         flag
         for flag in analysis.red_flags
-        if not is_equivalent_itemization_action(flag)
+        if not routine_transparency(flag)
     ]
 
 
@@ -5837,11 +5867,23 @@ def finalize_customer_analysis(
     quote_text: str = "",
     quote_count: Optional[int] = None,
     classification: Optional[QuoteClassification] = None,
+    *,
+    fresh_analysis: Optional[bool] = None,
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
     # Neither AI text nor a previous finalization may supply this snapshot.
     finalized.repair_evidence_sections = None
+    # Source-free compatibility calls are not fresh production analyses. The
+    # endpoint always opts in explicitly, including an empty/unreadable source.
+    validate_evidence = bool(quote_text.strip()) if fresh_analysis is None else fresh_analysis
+    finalized.analysis_integrity = AnalysisIntegrity(
+        status="COMPLETE" if validate_evidence else "LEGACY_UNVALIDATED")
+    source_evidence = SourceEvidence(quote_text)
+    rejected, uncertain_owners = (ground_assessments(finalized, source_evidence)
+                                 if validate_evidence else ([], set()))
+    if validate_evidence:
+        remove_ungrounded_customer_claims(finalized, source_evidence, rejected)
     source_work = proposed_work_facts(quote_text)
     source_compressor = (compressor_source_facts(quote_text) if source_work and source_work.component == "compressor" else None)
     direct_evidence = (source_compressor["documented_evidence"] if source_compressor
@@ -5860,6 +5902,23 @@ def finalize_customer_analysis(
     normalize_commissioning_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
     ensure_primary_evidence_assessment(finalized, source_work, TechnicalEvidenceAssessment)
 
+    if validate_evidence:
+        normalize_blower_evidence(finalized, quote_text)
+        expected_work = material_work(quote_text, classification)
+        gaps = coverage_gaps(finalized, expected_work)
+        # Discard an ungrounded generic summary only when concrete owners fully
+        # cover the submitted work. It cannot substitute for those assessments.
+        if expected_work and not gaps:
+            finalized.technical_assessments = [a for a in finalized.technical_assessments
+                if not (a.subject in {"Proposed work", "Supported proposed work"}
+                        and not a.documented_evidence and not a.material_gaps and not a.contradictions)]
+        for owner in uncertain_owners:
+            owned = [a for a in finalized.technical_assessments if (assessment_owner(a.subject) or a.subject) == owner]
+            if owned and all(not a.documented_evidence and a.diagnostic_evidence_status == "INCOMPLETE" for a in owned):
+                gaps.append(owner)
+        finalized.analysis_integrity = AnalysisIntegrity(
+            status="INCOMPLETE" if gaps else "COMPLETE", coverage_gaps=sorted(set(gaps)))
+
     ai_technical_support = finalized.decision.technical_support
     if finalized.technical_assessments:
         derived_technical_support = derive_technical_support(
@@ -5875,11 +5934,16 @@ def finalize_customer_analysis(
                 for assessment in finalized.technical_assessments
             ],
         )
-    else:
+    elif not validate_evidence:
         print(
             "TECHNICAL SUPPORT FALLBACK: no structured technical assessments; "
             f"preserving AI value {ai_technical_support}."
         )
+    else:
+        finalized.decision.technical_support = "PARTIALLY_SUPPORTED"
+    if (finalized.analysis_integrity.status == "INCOMPLETE"
+            and finalized.decision.technical_support == "SUPPORTED"):
+        finalized.decision.technical_support = "PARTIALLY_SUPPORTED"
 
     normalize_project_overview(finalized, quote_text)
     normalize_refrigerant_customer_fields(finalized, quote_text)
@@ -5906,6 +5970,9 @@ def finalize_customer_analysis(
     normalize_named_work_total(finalized, source_work)
     remove_pricing_transparency_red_flags(finalized)
     remove_unresolved_diagnosis_good_signs(finalized)
+    if validate_evidence:
+        normalize_blower_customer_fields(finalized, quote_text)
+        normalize_blower_report_details(finalized, quote_text)
     ensure_pricing_required_action(finalized.decision)
     finalized.decision.verdict = determine_verdict(finalized.decision)
     finalized.recommendation = build_customer_recommendation(finalized.decision)
@@ -6137,6 +6204,28 @@ def finalize_customer_analysis(
             "No important technical information is missing from the submitted diagnosis."
         )
     finalize_repair_diagnostic_guidance(finalized, quote_text)
+    if finalized.analysis_integrity.status == "INCOMPLETE":
+        owners = finalized.analysis_integrity.coverage_gaps
+        scope = "proposed work" if owners == ["proposed work"] else ", ".join(owners) + " work"
+        explanation = f"This review could not fully validate the {scope} from the submitted evidence."
+        if finalized.decision.verdict == "REVIEW_BEFORE_APPROVING":
+            finalized.banner_explanation = explanation
+            finalized.homeowner_takeaway = explanation + " Have the contractor clarify the supporting findings before approving that work."
+            finalized.bottom_line = "Have the supporting findings clarified before approving the work that this review could not fully validate."
+            finalized.recommendation = verdict_display_name(finalized.decision.verdict) + " — " + explanation
+        if not missing_information_for_report(finalized.missing_information):
+            finalized.missing_information = explanation
+        elif explanation not in finalized.missing_information:
+            finalized.missing_information += " " + explanation
+        for owner in owners:
+            question = ("What documented condition or project goal supports replacing the existing equipment?"
+                        if owner == "replacement basis" else
+                        "What documented findings support the proposed work?" if owner == "proposed work" else
+                        f"What documented findings support the proposed {owner} work?")
+            if not any(q == question or assessment_owner(q) == owner for q in finalized.contractor_questions):
+                price_index = next((i for i, q in enumerate(finalized.contractor_questions)
+                                    if contractor_question_category(q) == "pricing"), len(finalized.contractor_questions))
+                finalized.contractor_questions.insert(price_index, question)
     return finalized
 
 
@@ -6906,6 +6995,7 @@ Submitted HVAC Quote(s):
         quote_text=all_quotes_text,
         quote_count=len(request.files),
         classification=classification,
+        fresh_analysis=True,
     )
     analysis.market_price_context = evaluate_market_price(
         analysis.price_facts, project_zip=request.project_zip,

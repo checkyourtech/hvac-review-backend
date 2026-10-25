@@ -1,0 +1,22 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Indoor fan is not running and system is not cooling properly.
+
+Diagnosis:
+Blower motor is bad.
+
+Recommended repair:
+Replace ECM blower motor.
+
+Scope of work:
+- Remove existing blower motor
+- Install new ECM blower motor
+- Reassemble blower section
+- Test system operation
+
+Total repair price: $1,650
+
+Parts and labor included.
+
+1-year parts and labor warranty.

@@ -7,6 +7,7 @@ from refrigerant_system import refrigerant_items, subject_kind, CONDITION
 from pricing import MAJOR_CHARGE_ITEMIZATION_REQUEST
 from evidence_sufficiency import proposed_work_facts
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
+from evidence_integrity import SourceEvidence
 
 
 ELECTRICAL_CONTROLS_RULES = """
@@ -215,17 +216,40 @@ def components_in(value):
             if re.search(r"\b" + pattern + r"\b", str(value), re.I)]
 
 
+def _source_clauses(text):
+    return [clause.strip() for line in source_lines(text)
+            for clause in re.split(r";\s*|(?<=[.!?])\s+|\bbut\b", line, flags=re.I)]
+
+
 def proposed_components(text):
     """Only work/diagnosis of a discrete control, not a motor with normal inputs."""
     found = []
-    for line in source_lines(text):
+    for line in _source_clauses(text):
         if re.search(r"\b(?:not replacing|no replacement|do not replace|declined)\b", line, re.I):
             continue
         for name, pattern in COMPONENTS.items():
-            if re.search(r"\b(?:replace|repair|install|investigate|diagnose)\w*\s+(?:the |a |new |failed |existing |furnace |compressor |blower motor |condenser fan motor |\d+(?:/\d+)?\s*(?:(?:µF|μF|MFD|uF) )?|dual |run |start )*"
-                         + pattern + r"\b|\b" + pattern + r"\s+(?:replacement|repair|diagnosis)\b", line, re.I):
+            for match in re.finditer(r"\b(?:replace|repair|install|investigate|diagnose)\w*\s+(?:the |a |new |failed |existing |furnace |compressor |blower motor |condenser fan motor |\d+(?:/\d+)?\s*(?:(?:µF|μF|MFD|uF) )?|dual |run |start )*"
+                                    + pattern + r"\b|\b" + pattern + r"\s+(?:replacement|repair|diagnosis)\b", line, re.I):
+                # Negation belongs to this work statement, not to every finding
+                # elsewhere in the document (which may independently fail).
+                if (re.search(r"\b(?:no|not|without)\b(?:\s+\w+){0,4}\s*$", line[:match.start()], re.I)
+                        or re.match(r"\s+(?:(?:is|was)\s+)?not\s+(?:proposed|recommended|needed|planned)\b",
+                                    line[match.end():], re.I)):
+                    continue
                 if name not in found:
                     found.append(name)
+        if ("capacitor" not in found and _actual(line)
+                and not re.search(r"\b(?:no|not|without)\b", line, re.I)
+                and re.search(r"\b(?:failed|faulty|defective|weak)\s+(?:(?:run|start|dual)\s+)*capacitor\b|"
+                              r"\bcapacitor\s+(?:(?:is|was|has|been|found|tested)\s+)*(?:failed|faulty|defective|weak|out of tolerance)\b", line, re.I)):
+            found.append("capacitor")
+    # Actual out-of-tolerance readings or physical failure can independently
+    # establish capacitor work. Normal/missing tests cannot. Reuse the existing
+    # evidence rules, including their dual-section and no-cross-quote limits.
+    if ("capacitor" not in found and "capacitor" in components_in(text)
+            and len(re.findall(r"(?m)^\s*QUOTE \d+", text)) <= 1
+            and _facts("capacitor", text)["diagnostic_evidence_status"] == "CONFIRMED"):
+        found.append("capacitor")
     return found
 
 
@@ -372,11 +396,24 @@ def _transformer_observations(lines):
             primary = re.search(r"\b(?:primary|input)\b", clause, re.I) or (not secondary and re.search(
                 r"transformer power|power (?:at|to|reaching) (?:the )?(?:control )?transformer", clause, re.I))
             power = re.search(r"\b(?:power|voltage|volts?)\b", clause, re.I)
-            if checked and affirmed and primary and power and re.search(r"\bpresent\b", clause, re.I):
+            readings = re.findall(r"(\d+(?:\.\d+)?)\s*(?:VAC|volts?|V)\b", clause, re.I)
+            # A rating alone is not a reading. Numeric field notes are readings
+            # when measured/present, or labelled input/secondary without 'rated'.
+            rating_only = bool(re.search(r"rated|rating|required|nominal|specified", clause, re.I)
+                               and not re.search(r"\b(?:measured|tested|present|absent)\b", clause, re.I))
+            numeric_result = bool(readings and not rating_only)
+            zero_output = bool(secondary and not rating_only
+                               and not re.search(r"\bnot\s+(?:zero|0\b)", clause, re.I)
+                               and (re.search(r"\bzero\b", clause, re.I)
+                                    or numeric_result and Decimal(readings[-1]) == 0))
+            rated_primary = re.findall(r"(?:primary.{0,20}rated|rated.{0,20}primary)\s*(\d+(?:\.\d+)?)\s*(?:VAC|volts?|V)\b", " ".join(lines), re.I)
+            numeric_input = (primary and numeric_result and Decimal(readings[-1]) > 0
+                             and (not rated_primary or Decimal(readings[-1]) == Decimal(rated_primary[0])))
+            if (checked and affirmed and primary and power and re.search(r"\bpresent\b", clause, re.I)) or (affirmed and numeric_input):
                 found["primary"].append(clause.strip())
             # Missing voltage downstream is not a measured transformer output.
-            if secondary and checked and not re.search(r"\bdownstream\b", clause, re.I):
-                if re.search(r"\b(?:absent|missing|not present)\b|\bno (?:secondary |control )?(?:output|voltage)\b", clause, re.I):
+            if secondary and (checked or numeric_result or zero_output) and not re.search(r"\bdownstream\b", clause, re.I):
+                if zero_output or re.search(r"\b(?:absent|missing|not present)\b|\bno (?:secondary |control )?(?:output|voltage)\b", clause, re.I):
                     found["absent_secondary"].append(clause.strip())
                 elif affirmed and re.search(r"\b(?:present|normal|correct)\b", clause, re.I):
                     found["normal_secondary"].append(clause.strip())
@@ -384,7 +421,7 @@ def _transformer_observations(lines):
 
 
 def _facts(component, text):
-    lines = source_lines(text)
+    lines = _source_clauses(text) if component == "capacitor" else source_lines(text)
     actual = [s for s in lines if _actual(s)]
     related = [s for s in actual if component in components_in(s)]
     # Labeled numerical continuations are source evidence too (never supply units).
@@ -512,24 +549,33 @@ def electrical_source_facts(text):
 def normalize_electrical_assessments(analysis, text, assessment_type, classification=None):
     if not text.strip():
         return  # Compatibility calls with no source retain structured input.
+    if "capacitor" not in proposed_components(text):
+        # Source-backed missing/normal capacitor tests may support a motor's
+        # assessment, but do not establish a separate capacitor diagnosis.
+        analysis.technical_assessments = [a for a in analysis.technical_assessments
+            if component_subject(a.subject) != "capacitor"]
     if motor_or_compressor_only(text):
         # Do not erase independently documented control findings in a combined case.
         analysis.technical_assessments = [a for a in analysis.technical_assessments
             if a not in electrical_items(analysis) or (a.documented_evidence and all(
                 e.strip().casefold() in text.casefold() for e in a.documented_evidence))]
         return
+    source = SourceEvidence(text)
     for facts in electrical_source_facts(text):
         component = component_subject(facts["subject"])
         items = [a for a in electrical_items(analysis) if component_subject(a.subject) == component]
         # Preserve richer source-backed structured evidence outside bounded recovery.
         # Do not preserve AI-only measurements or an unsupported status assertion.
         grounded = [a for a in items if a.documented_evidence and all(
-            e.strip().casefold() in text.casefold() and _actual(e) for e in a.documented_evidence)
-            and re.search(r"criterion|criteria|isolat|failed.*(?:function|test)|documented.*(?:damage|physical)",
+            source.grounded(e, component) and _actual(e) for e in a.documented_evidence)
+            and re.search(r"criterion|criteria|isolat|failed.*(?:function|test)|documented.*(?:damage|physical)|"
+                          r"measured|tested|confirmed.*(?:present|absent)|open circuit|welded|ruptured",
                           " ".join(a.documented_evidence), re.I)]
-        if (component != "transformer" and facts["diagnostic_evidence_status"] == "INCOMPLETE" and grounded
+        if (facts["diagnostic_evidence_status"] in {"ABSENT", "INCOMPLETE"} and grounded
+                and not facts["documented_evidence"]
                 and any(a.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"} for a in grounded)):
-            chosen = grounded[0].model_copy(update={"subject": facts["subject"], "materiality": "PRIMARY"})
+            supported = next(a for a in grounded if a.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"})
+            chosen = supported.model_copy(update={"subject": facts["subject"], "materiality": "PRIMARY"})
         else:
             chosen = assessment_type(**facts)
         # Replace this domain in place; repeated finalization must not move it
