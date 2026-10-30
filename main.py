@@ -6657,6 +6657,16 @@ ul {{
         </div>
     </div>
 
+    {list_section(
+        "Red Flags",
+        red_flags
+    )}
+
+    {list_section(
+        "Good Signs",
+        good_signs
+    )}
+
     {section("What This Means for You", plain_english, "plain-english")}
 
     {section("Does the Diagnosis Make Sense?", equipment_analysis)}
@@ -6683,16 +6693,6 @@ ul {{
     {section("Quote Comparison", quote_comparison) if quote_comparison else ""}
 
     {section("Best Quote Recommendation", best_quote) if best_quote else ""}
-
-    {list_section(
-        "Red Flags",
-        red_flags
-    )}
-
-    {list_section(
-        "Good Signs",
-        good_signs
-    )}
 
     {list_section(
         "Questions to Ask Your Contractor",
