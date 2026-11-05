@@ -52,8 +52,8 @@ class RepairReportPresentationTests(unittest.TestCase):
         self.assertIn("GET A SECOND OPINION", report)
         self.assertEqual(final.project_overview, "The quote proposes replacing the control transformer for $650.")
         evidence = evidence_text(final)
-        for term in ("rated primary voltage", "secondary/control-voltage", "commonly provide about 24 VAC",
-                     "A technician should verify", "downstream 24-volt", "the contractor may also need"):
+        for term in ("power is reaching the transformer", "secondary output",
+                     "A technician should verify", "transformer itself has failed"):
             self.assertIn(term, evidence)
         self.assertNotIn("general context", evidence)
         self.assertNotIn("not a measured value from this quote", evidence)
@@ -63,12 +63,10 @@ class RepairReportPresentationTests(unittest.TestCase):
         self.assertIn("transformer itself", final.missing_information)
         self.assertEqual(len(final.contractor_questions), 2)
         diagnostic, pricing = final.contractor_questions
-        self.assertIn("What primary and secondary voltages", diagnostic)
-        self.assertIn("if the secondary voltage was low or absent", diagnostic)
-        self.assertIn("short or excessive load", diagnostic)
+        self.assertEqual(diagnostic, "What testing showed that the control transformer itself has failed?")
         self.assertIn("itemized breakdown", pricing)
         self.assertEqual(report.count(diagnostic), 1)
-        self.assertNotIn("What testing showed that the control transformer itself has failed?", report)
+        self.assertNotIn("What primary and secondary voltages", report)
         self.assertNotIn("The quote does not show what finding supports replacing the transformer.", report)
         self.assertNotIn("For the transformer diagnosis, examples", report)
 
@@ -145,6 +143,18 @@ class RepairReportPresentationTests(unittest.TestCase):
                 self.assertNotIn("24", facts)
                 self.assertNotRegex(report, r"(?:you|homeowner) (?:should|must|can) (?:measure|probe|open|test)")
 
+    def test_transformer_customer_copy_never_adds_unspecified_electrical_ratings(self):
+        for state in ("bad", "partial", "good"):
+            with self.subTest(state=state):
+                final, report, _ = self.transformer(state)
+                # Check persisted customer fields as well as HTML: spacing or
+                # hyphenation must not let a nominal voltage escape the guard.
+                for text in (final.model_dump_json(), report):
+                    self.assertNotRegex(text, r"(?i)\b(?:24|120|208|240)\s*-?\s*(?:V(?:AC|DC)?|volts?)\b")
+                    self.assertNotRegex(text, r"(?i)\b\d+(?:\.\d+)?\s*(?:VA|ohms?|Ω)\b")
+                restored = main.HVACAnalysis.model_validate_json(final.model_dump_json())
+                self.assertEqual(main.build_report_html(restored, 1), main.build_report_html(final, 1))
+
     def test_existing_partial_downstream_gap_does_not_reask_known_input_output(self):
         # Presentation consumes this existing PARTIAL state. It must not impose
         # a downstream check on the supported source-recovery boundary below.
@@ -156,7 +166,8 @@ class RepairReportPresentationTests(unittest.TestCase):
         main.finalize_repair_diagnostic_guidance(final)
         self.assertEqual(item.model_dump(), before)
         self.assertEqual(len(final.contractor_questions), 1)
-        self.assertIn("downstream 24-volt circuit", final.contractor_questions[0])
+        self.assertIn("downstream control circuit", final.contractor_questions[0])
+        self.assertNotIn("24", final.contractor_questions[0])
         self.assertNotIn("What voltage", final.contractor_questions[0])
         self.assertEqual(main.repair_diagnostic_question_owner(final.contractor_questions[0]), "electrical_transformer")
         self.assertIn("downstream", final.missing_information)
@@ -178,7 +189,8 @@ class RepairReportPresentationTests(unittest.TestCase):
         self.assertEqual(item.model_dump(), before)
         self.assertIn("14 volts", evidence_text(final))
         self.assertEqual(len(final.contractor_questions), 1)
-        self.assertIn("downstream 24-volt circuit", final.contractor_questions[0])
+        self.assertIn("downstream control circuit", final.contractor_questions[0])
+        self.assertNotIn("24", final.contractor_questions[0])
         self.assertNotIn("What voltage", final.contractor_questions[0])
 
     def test_contactor_upload_uses_shared_architecture_and_one_specific_question(self):
@@ -220,7 +232,8 @@ class RepairReportPresentationTests(unittest.TestCase):
         final, report = upload(original, Path("electrical_controls_transformer_bad_test.txt").read_text())
         self.assertNotIn("998", report)
         self.assertNotIn("Injected stale", report)
-        self.assertIn("rated primary voltage", evidence_text(final))
+        self.assertIn("power is reaching the transformer", evidence_text(final))
+        self.assertIn("measure its secondary output", evidence_text(final))
         self.assertEqual(original.repair_evidence_sections[0].title, "Injected stale section")
 
     def test_email_renderer_uses_the_same_finalized_html_without_network(self):

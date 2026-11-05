@@ -131,13 +131,12 @@ CONTROL_MISSING_EVIDENCE = {
     "low-voltage control": "The quote does not document control power and signals at the proposed component or its response to those inputs.",
 }
 
-# General educational context only: never a submitted measurement or a source
-# fact. This copy is used only for the ABSENT-evidence presentation branch.
+# Ask for input/output findings without supplying an undocumented electrical
+# rating. This copy is used only for the ABSENT-evidence presentation branch.
 TRANSFORMER_EXPECTED_EVIDENCE = (
-    "A technician should verify that the transformer is receiving its rated primary voltage and measure "
-    "the secondary/control-voltage output. HVAC control transformers commonly provide about 24 VAC on the secondary side. "
-    "If secondary voltage is low or absent, the contractor may also need to check the downstream 24-volt circuit "
-    "for a short or excessive load before determining that the transformer itself has failed."
+    "A technician should verify that power is reaching the transformer and measure its secondary output. "
+    "Those findings help determine whether the transformer itself has failed or whether the missing "
+    "control power needs further diagnosis."
 )
 
 
@@ -152,11 +151,7 @@ def electrical_evidence_review(item, source_text=""):
         examples = "power and required inputs at the defrost board, applicable sensor findings and the board's output during the documented defrost sequence; an icing symptom alone does not establish board failure"
     if item.diagnostic_evidence_status == "ABSENT":
         missing = CONTROL_MISSING_EVIDENCE[name]
-        if name == "transformer":
-            question = (
-                "What primary and secondary voltages were measured at the control transformer, and if the secondary voltage "
-                "was low or absent, was the 24-volt circuit checked for a short or excessive load before the transformer was condemned?")
-        elif name in {"contactor", "relay"}:
+        if name in {"contactor", "relay"}:
             question = f"What control input and switching-response or contact-test results show that the {name} itself has failed?"
     if item.diagnostic_evidence_status == "INCOMPLETE":
         if name == "transformer" and _transformer_observations(item.documented_evidence)["primary"]:
@@ -171,7 +166,7 @@ def electrical_evidence_review(item, source_text=""):
                 # requirement to the existing supported input/output boundary.
                 examples = "the remaining downstream-circuit findings needed to distinguish the documented output problem from a short or excessive load"
                 missing = "The quote does not document the downstream control-circuit check identified as the remaining gap in this diagnosis."
-                question = "Was the control transformer's downstream 24-volt circuit checked for a short or excessive load that could explain the documented output problem?"
+                question = "Was the control transformer's downstream control circuit checked for a short or excessive load that could explain the documented output problem?"
         elif name in {"contactor", "relay"} and not _switching_observations(item.documented_evidence, name)["coil"]:
             examples = f"the missing control-voltage check at the {name} coil during the documented call, separating a missing input from failed switching"
         elif name == "capacitor" and re.search(r"measured.*(?:µF|μF|MFD|microfarad)", evidence, re.I):

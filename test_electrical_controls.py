@@ -433,7 +433,7 @@ class ElectricalControlsTests(unittest.TestCase):
 
     def test_transformer_fixtures_have_one_owned_gap_question_and_finding(self):
         for state, question in (
-            ("bad", "What primary and secondary voltages were measured at the control transformer, and if the secondary voltage was low or absent, was the 24-volt circuit checked for a short or excessive load before the transformer was condemned?"),
+            ("bad", "What testing showed that the control transformer itself has failed?"),
             ("partial", "What voltage was measured on the transformer secondary while primary power was present?"),
             ("good", None),
         ):
@@ -456,6 +456,27 @@ class ElectricalControlsTests(unittest.TestCase):
                 elif state == "good":
                     self.assertEqual(final.missing_information,
                                      "No important technical information is missing from the submitted diagnosis.")
+
+    def test_transformer_bad_keeps_one_focused_question_without_a_nominal_voltage_checklist(self):
+        expected = "What testing showed that the control transformer itself has failed?"
+        for source in (
+            Path("electrical_controls_transformer_bad_test.txt").read_text(),
+            "Replace control transformer.\nThe thermostat is blank.",
+            "Replace low-voltage control transformer.\nNo low-voltage power is available.",
+        ):
+            with self.subTest(source=source):
+                original = raw()
+                original.contractor_questions = [expected, expected,
+                    "What transformer secondary output was measured?"]
+                final = self.final(source, original)
+                self.assertEqual(final.decision.technical_support, "UNSUPPORTED")
+                self.assertEqual(final.decision.verdict, "GET_A_SECOND_OPINION")
+                self.assertEqual((len(final.red_flags), len(final.good_signs)), (1, 0))
+                technical = [q for q in final.contractor_questions if main.repair_diagnostic_question_owner(q)]
+                self.assertEqual(technical, [expected])
+                self.assertEqual(final.contractor_questions[0], expected)
+                self.assertEqual(len(final.contractor_questions), len(set(final.contractor_questions)))
+                self.assertLessEqual(len(final.contractor_questions), 6)
 
     def test_transformer_blank_thermostat_or_lost_control_power_is_not_failure_evidence(self):
         for symptom in ("The thermostat is blank.", "The unit has no 24V.",
