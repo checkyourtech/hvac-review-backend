@@ -1,0 +1,48 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner is running but not cooling properly.
+
+Diagnosis:
+System was inspected and indoor airflow was verified before evaluating refrigerant charge.
+
+Air filter is clean.
+Evaporator coil is clean.
+Indoor blower is operating properly.
+Supply and return airflow are unobstructed.
+
+Outdoor ambient temperature: 92°F
+Indoor return-air temperature: 76°F
+
+System uses R-410A refrigerant.
+
+Technician measured:
+Suction pressure: 102 PSIG
+Liquid pressure: 318 PSIG
+Superheat: 29°F
+Subcooling: 2°F
+
+Manufacturer target subcooling under current operating conditions: 10°F.
+
+Technician determined that the measured operating conditions are consistent with an undercharged system after airflow conditions were verified.
+
+Electronic leak detection was performed at accessible refrigerant piping, service valves, indoor coil connections, and outdoor coil connections.
+
+Leak detected at the liquid-line service valve Schrader core.
+
+Recommended repair:
+- Recover refrigerant as necessary
+- Replace leaking Schrader core
+- Install new valve cap/seal
+- Pressure test repaired connection with nitrogen
+- Evacuate system as required
+- Recharge system with R-410A to manufacturer specifications
+- Verify final refrigerant charge using manufacturer charging procedure
+- Confirm proper superheat/subcooling after repair
+- Verify system cooling operation
+
+Repair includes refrigerant, materials, and labor.
+
+Total repair price: $875
+
+1-year parts and labor warranty on repair.

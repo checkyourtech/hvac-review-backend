@@ -1,0 +1,49 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Furnace is operating, but technician identified a safety concern during inspection.
+
+Diagnosis:
+Failed/cracked heat exchanger requiring furnace replacement.
+
+Diagnostic findings:
+- Furnace is approximately 15 years old.
+- Heat exchanger inspected visually and with a borescope.
+- Crack approximately 2 inches long documented in the primary heat exchanger near the burner inlet.
+- Photograph of the crack was provided to the homeowner.
+- Burner flame becomes visibly disturbed when the circulating blower starts.
+- Combustion analysis performed.
+- Flue-gas carbon monoxide measured at 280 ppm air-free.
+- Ambient carbon monoxide near the supply registers increased during furnace operation.
+- Gas manifold pressure verified within manufacturer specifications.
+- Temperature rise checked and found within manufacturer range.
+- Venting inspected and found unobstructed.
+- Burner and inducer operation verified.
+- Heat exchanger failure was confirmed before replacement was recommended.
+- Technician advised discontinuing furnace operation due to combustion-safety concerns.
+
+Recommended repair:
+Replace existing furnace due to confirmed failed heat exchanger.
+
+Scope of work:
+- Remove existing furnace
+- Install properly sized replacement furnace
+- Connect existing gas piping as appropriate
+- Connect venting
+- Connect electrical and controls
+- Connect supply and return ductwork
+- Verify gas manifold pressure
+- Verify temperature rise
+- Perform combustion analysis
+- Check for carbon monoxide
+- Verify venting and inducer operation
+- Run furnace through complete heating cycle
+- Confirm safe operation after installation
+
+Total replacement price: $9,850
+
+Parts and labor included.
+
+10-year manufacturer parts warranty.
+Lifetime heat exchanger warranty.
+2-year labor warranty.

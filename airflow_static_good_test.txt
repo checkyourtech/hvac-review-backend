@@ -1,0 +1,44 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner is running but cooling is weak and the evaporator coil has been icing.
+
+Diagnosis:
+Low indoor airflow caused by excessive external static pressure and a restricted return path.
+
+Diagnostic findings:
+- Air filter inspected and found clean.
+- Evaporator coil inspected and found clean.
+- Indoor blower is operating.
+- Blower speed setting verified for cooling operation.
+- Total external static pressure measured at 0.92 in. w.c.
+- Manufacturer maximum rated external static pressure is 0.50 in. w.c.
+- Return static pressure measured at -0.58 in. w.c.
+- Supply static pressure measured at +0.34 in. w.c.
+- Return-air restriction identified as the primary source of excessive static pressure.
+- Return grille is undersized for the required airflow.
+- Return duct is visibly restricted.
+- Refrigerant charge was not adjusted before correcting airflow.
+- No evidence of refrigerant leakage was found.
+- After correcting the return restriction, total external static pressure measured 0.46 in. w.c.
+- Supply airflow improved.
+- Evaporator coil no longer iced.
+- System cooling operation returned to normal.
+
+Recommended repair:
+Correct return-air restriction and improve return-air capacity.
+
+Scope of work:
+- Modify return ductwork
+- Install larger return grille
+- Verify blower speed
+- Recheck total external static pressure
+- Verify supply and return airflow
+- Confirm evaporator coil remains free of icing
+- Test full cooling operation
+
+Total repair price: $1,850
+
+Parts and labor included.
+
+1-year parts and labor warranty.

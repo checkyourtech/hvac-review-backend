@@ -1,0 +1,33 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner runs but shuts off on high pressure after several minutes.
+
+Diagnosis:
+Condenser fan motor is bad.
+
+Diagnostic findings:
+- Outdoor fan is not running.
+- Condenser coil gets very hot.
+- High-pressure switch opens after several minutes.
+- No documented voltage measurement at the condenser fan motor.
+- No documented capacitor test.
+- No documented amp draw.
+- No documented winding resistance test.
+- No documented motor-to-ground test.
+- No documented check for a seized fan blade or mechanical obstruction.
+- No documented control-board or contactor output verification.
+
+Recommended repair:
+Replace condenser fan motor.
+
+Scope of work:
+- Remove condenser fan motor
+- Install replacement condenser fan motor
+- Test system operation
+
+Total repair price: $1,450
+
+Parts and labor included.
+
+1-year parts and labor warranty.

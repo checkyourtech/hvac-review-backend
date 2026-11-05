@@ -1,0 +1,49 @@
+HVAC SERVICE PROPOSAL
+
+Customer complaint:
+Water leaking around indoor air handler.
+
+Equipment:
+Residential split-system air conditioner
+Upflow air handler
+
+Diagnostic findings:
+
+- Water observed leaking from the air handler during cooling operation.
+- Evaporator coil inspected and found clean with no evidence of icing.
+- Blower operation verified normal.
+- Condensate drain line inspected and found heavily restricted with biological buildup.
+- Drain trap was clogged and holding water.
+- Primary drain pan visually inspected and found intact with no cracks or damage.
+- Secondary drain pan inspected and found dry and undamaged.
+- Condensate pump tested and operating normally.
+- Drain line was disconnected and flushed with water and nitrogen.
+- Drain trap was cleaned.
+- After cleaning, water was poured into the evaporator drain pan and flowed freely through the drain line.
+- System was operated in cooling for 30 minutes after repair.
+- No additional water leakage was observed.
+- Evaporator condensate drained normally during operation.
+
+Diagnosis:
+Clogged condensate drain line and drain trap causing water to back up into the air handler.
+
+Recommended repair:
+Clean and flush condensate drain system.
+
+Scope of work:
+
+- Clear primary condensate drain line
+- Clean drain trap
+- Flush drain piping
+- Reassemble drain system
+- Verify proper drainage
+- Run system and confirm no additional leakage
+
+Total repair price:
+$425
+
+Warranty:
+90-day labor warranty on condensate drain cleaning.
+
+Technician notes:
+Evaporator coil replacement and drain pan replacement are not recommended. The coil and drain pans were inspected and showed no evidence of leakage or physical damage.

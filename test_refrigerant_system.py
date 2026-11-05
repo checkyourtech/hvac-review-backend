@@ -41,7 +41,7 @@ class RefrigerantSystemTests(unittest.TestCase):
             self.assertFalse(rs.refrigerant_required(text), text)
             final = main.finalize_customer_analysis(analysis_with([]), text, 1)
             self.assertFalse(rs.refrigerant_items(final))
-            self.assertNotIn("What Does the Refrigerant Evidence Show?", main.build_report_html(final, 1))
+            self.assertNotIn("refrigerant", [section.owner for section in final.repair_evidence_sections])
 
     def test_semantic_subjects(self):
         for name in (*rs.SUBJECTS, "Low refrigerant", "Low charge", "Refrigerant loss", "Leak source",
@@ -384,7 +384,10 @@ class RefrigerantSystemTests(unittest.TestCase):
 
     def test_visible_section(self):
         for case in ("good", "partial", "bad", "circuit_work", "cross_module"):
-            self.assertIn("What Does the Refrigerant Evidence Show?", main.build_report_html(self.final(case), 1))
+            final = self.final(case)
+            title = ("What Does the Refrigerant Evidence Show?" if case == "partial"
+                     else "What Evidence Should Support This Diagnosis?")
+            self.assertIn(title, main.build_report_html(final, 1))
 
     def test_production_upload_five_cases(self):
         classification = main.QuoteClassification(quote_type="repair", system_type="split AC", primary_scope="Refrigerant work",
@@ -402,7 +405,9 @@ class RefrigerantSystemTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 final = email.call_args.kwargs["analysis"]
                 self.assertEqual(final.decision.verdict, verdict)
-                self.assertIn("What Does the Refrigerant Evidence Show?", response.text)
+                title = ("What Does the Refrigerant Evidence Show?" if case == "partial"
+                         else "What Evidence Should Support This Diagnosis?")
+                self.assertIn(title, response.text)
 
 
 if __name__ == "__main__":

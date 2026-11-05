@@ -191,7 +191,7 @@ class CompressorTests(unittest.TestCase):
                 self.assertEqual(response.text, captured["html"])
                 self.assertEqual(original.model_dump(), before)
                 self.assertIsNot(original, captured["analysis"])
-                self.assertIn("What Does the Compressor Evidence Show?", response.text)
+                self.assertIn("What Evidence Should Support This Diagnosis?", response.text)
                 self.assertIn(html.escape(main.verdict_display_name(captured["analysis"].decision.verdict)), response.text)
                 self.assertEqual(captured["analysis"].market_price_context.status, main.MarketPriceStatus.NOT_EVALUATED)
 
@@ -221,7 +221,7 @@ class CompressorTests(unittest.TestCase):
                      "Replace full system with scroll compressor", "No compressor replacement proposed"):
             self.assertFalse(cp.compressor_required(text), text)
             final = main.finalize_customer_analysis(analysis_with([]), text, 1)
-            self.assertNotIn("What Does the Compressor Evidence Show?", main.build_report_html(final, 1))
+            self.assertNotIn("compressor", [section.owner for section in final.repair_evidence_sections])
 
     def test_classifier_omission_and_false_positive(self):
         for text, selected, expected in ((source("good"), [], True),

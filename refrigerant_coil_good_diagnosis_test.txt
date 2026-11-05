@@ -1,0 +1,39 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner is running but not cooling well.
+
+Diagnosis:
+Evaporator coil is leaking refrigerant and requires replacement.
+
+Diagnostic findings:
+- Indoor airflow was checked and found acceptable.
+- Air filter is clean.
+- Evaporator coil is clean and not airflow-restricted.
+- Indoor blower is operating properly.
+- System refrigerant charge was found low.
+- Electronic leak detector indicated refrigerant at the evaporator coil.
+- Soap bubbles confirmed leakage at the evaporator coil tubing.
+- No leak was found at accessible service valves, line-set connections, or outdoor coil.
+- Leak location was confirmed at the evaporator coil.
+
+Recommended repair:
+Replace leaking evaporator coil.
+
+Scope of work:
+- Recover refrigerant
+- Remove leaking evaporator coil
+- Install replacement evaporator coil
+- Replace liquid-line filter drier
+- Pressure test repaired refrigerant circuit with nitrogen
+- Evacuate system to 500 microns or lower
+- Recharge system with manufacturer-specified refrigerant
+- Verify proper refrigerant charge
+- Verify system cooling operation
+
+Total repair price: $4,850
+
+Parts and labor included.
+
+10-year manufacturer parts warranty on evaporator coil.
+2-year labor warranty.

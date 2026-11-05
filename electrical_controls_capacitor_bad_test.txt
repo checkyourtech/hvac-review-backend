@@ -1,0 +1,4 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace capacitor — $650.
+Diagnosis: failed capacitor.
+45 µF ±6% capacitor measured 44.8 µF.

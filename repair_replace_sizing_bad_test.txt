@@ -1,0 +1,53 @@
+HVAC REPLACEMENT PROPOSAL
+
+Customer complaint:
+Air conditioner is not cooling properly.
+
+Diagnosis:
+System is old and should be replaced.
+
+Existing equipment:
+- Approximately 12 years old
+- Existing system size not documented
+- Existing model numbers not documented
+
+Diagnostic findings:
+- System is not cooling properly.
+- No documented compressor electrical testing.
+- No documented refrigerant diagnostic measurements.
+- No documented airflow or static pressure testing.
+- No documented evaporator or condenser coil inspection.
+- No documented leak detection.
+- No documented repair estimate.
+- No documented explanation why repair is not practical.
+- No documented load calculation.
+- No documented Manual J calculation.
+- No documented duct evaluation.
+- No documented reason for changing equipment capacity.
+
+Proposed replacement equipment:
+- 4-ton heat pump system
+- Exact indoor model not provided
+- Exact outdoor model not provided
+- AHRI matched-system reference not provided
+- Existing equipment capacity not documented
+- No documented load calculation supporting 4-ton capacity
+
+Recommended work:
+Replace entire HVAC system.
+
+Scope of work:
+- Remove existing equipment
+- Install new 4-ton heat pump
+- Install new indoor air handler
+- Connect refrigerant piping
+- Connect electrical
+- Connect ductwork
+- Start and test system
+
+Total replacement price: $18,500
+
+Parts and labor included.
+
+10-year manufacturer parts warranty.
+1-year labor warranty.

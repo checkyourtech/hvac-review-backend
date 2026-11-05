@@ -1,0 +1,39 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace ignites normally, but the burners shut off after a few seconds and the furnace retries.
+
+Diagnosis:
+Failed flame sensor.
+
+Diagnostic findings:
+- Furnace ignition sequence verified.
+- Burners ignite normally.
+- Flame sensor is positioned in the burner flame.
+- Flame sensor wiring and connections inspected and found secure.
+- Furnace grounding inspected and verified.
+- Burner flame appears stable and properly contacts the flame sensor.
+- Flame signal measured at 0.4 microamps DC.
+- Manufacturer minimum flame signal is 1.5 microamps DC.
+- Flame sensor was cleaned and retested.
+- Flame signal remained at 0.4 microamps DC after cleaning.
+- Control board continues to shut the burners down due to loss of flame-proving signal.
+- No other wiring, grounding, or burner-flame condition was found that would explain the weak flame signal.
+
+Recommended repair:
+Replace failed flame sensor.
+
+Scope of work:
+- Remove failed flame sensor
+- Install replacement flame sensor
+- Verify wiring and electrical connections
+- Verify proper flame sensor positioning
+- Measure flame signal after repair
+- Operate furnace through a complete heating cycle
+- Confirm normal furnace operation
+
+Total repair price: $425
+
+Parts and labor included.
+
+1-year parts and labor warranty.

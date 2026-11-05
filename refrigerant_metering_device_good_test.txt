@@ -1,0 +1,44 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner is running but cooling capacity is poor.
+
+Diagnosis:
+Restricted TXV.
+
+Diagnostic findings:
+- Indoor airflow verified and within expected range.
+- Air filter is clean.
+- Evaporator coil is clean.
+- Indoor blower is operating properly.
+- Refrigerant charge verified before condemning the TXV.
+- Suction pressure is low.
+- Superheat is high.
+- Subcooling is normal.
+- Liquid line temperature was checked.
+- No abnormal temperature drop was found across the filter drier.
+- Filter drier does not appear restricted.
+- TXV sensing bulb is properly mounted and insulated.
+- External equalizer line is properly connected and unobstructed.
+- Adequate liquid refrigerant is reaching the TXV inlet.
+- TXV does not respond properly to changing load/bulb temperature.
+- No other liquid-line restriction was found.
+
+Recommended repair:
+Replace restricted TXV.
+
+Scope of work:
+- Recover refrigerant
+- Replace TXV
+- Replace liquid-line filter drier
+- Nitrogen pressure test
+- Evacuate system
+- Recharge to manufacturer specifications
+- Verify superheat and subcooling
+- Confirm proper cooling operation
+
+Total repair price: $2,650
+
+Parts and labor included.
+
+1-year parts and labor warranty.

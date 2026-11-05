@@ -1,0 +1,37 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace will not heat. Inducer motor starts, but ignition sequence stops before ignition.
+
+Diagnosis:
+Failed furnace pressure switch.
+
+Diagnostic findings:
+- Draft inducer motor starts and operates normally on a call for heat.
+- Inducer motor voltage and operation verified.
+- Pressure switch tubing and pressure ports inspected and found clear and secure.
+- Venting and combustion-air path inspected with no blockage found.
+- Condensate drain and trap inspected with no restriction found.
+- Draft pressure measured at -1.75 in. w.c.
+- Pressure switch is rated to close at -0.90 in. w.c.
+- Pressure switch does not close even though measured draft exceeds its required closing pressure.
+- Pressure switch continuity was tested and switch remains open under proper draft.
+- Wiring and electrical connections to the pressure switch were inspected and found secure.
+- No other condition was found that would prevent proper pressure-switch operation.
+
+Recommended repair:
+Replace failed furnace pressure switch.
+
+Scope of work:
+- Remove existing pressure switch
+- Install replacement pressure switch
+- Reconnect tubing and wiring
+- Verify pressure switch proves draft
+- Operate furnace through a complete heating cycle
+- Confirm normal furnace operation
+
+Total repair price: $675
+
+Parts and labor included.
+
+1-year parts and labor warranty.

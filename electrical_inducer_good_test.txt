@@ -1,0 +1,37 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace will not heat. Inducer does not start on a call for heat.
+
+Diagnosis:
+Failed draft inducer motor.
+
+Diagnostic findings:
+- 120 volts measured at the inducer motor during a call for heat.
+- Control board output to the inducer verified.
+- Inducer wiring and connectors inspected and found secure.
+- Inducer wheel checked and is not obstructed.
+- Motor receives proper voltage but does not start.
+- Motor winding resistance tested outside expected range.
+- Pressure switch tubing and venting inspected with no blockage found.
+- No condensate restriction found.
+- Furnace fault history reviewed and no other fault was identified that would prevent inducer operation.
+
+Recommended repair:
+Replace failed draft inducer motor assembly.
+
+Scope of work:
+- Remove failed inducer assembly
+- Install replacement inducer assembly
+- Replace inducer gasket/seal as needed
+- Verify wiring and electrical connections
+- Verify inducer starts properly on a call for heat
+- Confirm pressure switch proves draft
+- Operate furnace through a complete heating cycle
+- Confirm normal furnace operation
+
+Total repair price: $1,425
+
+Parts and labor included.
+
+1-year parts and labor warranty.

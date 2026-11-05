@@ -1,0 +1,49 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Several rooms have weak airflow and significant temperature differences. Home has difficulty maintaining temperature during peak heating and cooling conditions.
+
+Diagnosis:
+Existing duct system is undersized, leaking, damaged, and requires replacement.
+
+Diagnostic findings:
+- Total external static pressure measured at 0.94 in. w.c.
+- Manufacturer maximum rated external static pressure is 0.50 in. w.c.
+- Return static pressure measured at -0.61 in. w.c.
+- Supply static pressure measured at +0.33 in. w.c.
+- Blower speed and equipment setup verified before testing.
+- Airflow measurements at multiple supply registers confirmed inadequate airflow.
+- Return-air system is undersized for required system airflow.
+- Existing return grille and return duct are restrictive.
+- Visual inspection found multiple sections of flex duct crushed and improperly supported.
+- Several supply ducts have excessive bends and compression.
+- Multiple duct connections show visible air leakage.
+- Duct leakage testing confirmed significant leakage.
+- Existing duct sizing does not support required system airflow.
+- Existing duct layout cannot be adequately corrected through minor repairs or balancing alone.
+
+Recommended repair:
+Replace existing supply and return duct system with properly sized ductwork.
+
+Scope of work:
+- Remove existing damaged and undersized ductwork
+- Install properly sized supply duct system
+- Install properly sized return duct system
+- Replace restrictive return grille
+- Seal all duct connections
+- Properly support flex duct to prevent compression
+- Balance supply airflow
+- Verify blower configuration
+- Measure total external static pressure after installation
+- Measure supply and return static pressure after installation
+- Verify airflow at supply registers
+- Test system operation after repairs
+
+Post-repair target:
+Total external static pressure at or below manufacturer-rated maximum of 0.50 in. w.c.
+
+Total repair price: $11,500
+
+Parts and labor included.
+
+1-year parts and labor warranty.

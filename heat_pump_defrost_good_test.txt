@@ -1,0 +1,51 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Heat pump is running in heating mode but supply air remains cool.
+
+Diagnosis:
+Failed reversing valve.
+
+Diagnostic findings:
+- Thermostat is configured correctly for the equipment O/B logic.
+- Thermostat is calling for heating.
+- Reversing-valve solenoid voltage verified at 24 VAC during the required operating mode.
+- Reversing-valve coil resistance tested and is within manufacturer specifications.
+- Reversing-valve solenoid energizes correctly.
+- Outdoor unit and indoor blower are operating.
+- Airflow verified normal.
+- Air filter and indoor coil are clean.
+- Refrigerant charge checked and found within manufacturer requirements.
+- Suction and discharge pressures measured during heating operation.
+- Refrigerant line temperatures measured at the reversing valve.
+- Temperature readings indicate the valve is not fully redirecting refrigerant flow.
+- Significant temperature mixing is present across the reversing valve.
+- Defrost board operation checked and found normal.
+- Outdoor temperature sensor tested and found within specification.
+- No active defrost condition is present.
+- Valve was commanded between heating and cooling modes and failed to shift completely.
+- Diagnosis confirms an internally leaking or mechanically stuck reversing valve.
+
+Recommended repair:
+Replace failed reversing valve.
+
+Scope of work:
+- Recover refrigerant
+- Remove failed reversing valve
+- Install replacement reversing valve
+- Replace filter drier
+- Nitrogen purge while brazing
+- Pressure test refrigerant circuit with nitrogen
+- Evacuate system to proper vacuum level
+- Recharge system according to manufacturer requirements
+- Verify refrigerant charge
+- Verify reversing-valve operation in heating and cooling
+- Verify system pressures and temperatures
+- Test defrost operation
+- Run system through complete heating cycle
+
+Total repair price: $3,850
+
+Parts and labor included.
+
+1-year parts and labor warranty.

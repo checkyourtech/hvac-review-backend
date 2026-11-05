@@ -1,0 +1,21 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace starts, burners ignite, then shut off after a few seconds.
+
+Diagnosis:
+Bad flame sensor.
+
+Recommended repair:
+Replace furnace flame sensor.
+
+Scope of work:
+- Remove existing flame sensor
+- Install new flame sensor
+- Test furnace operation
+
+Total repair price: $425
+
+Parts and labor included.
+
+1-year parts and labor warranty.

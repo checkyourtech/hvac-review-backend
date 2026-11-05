@@ -1,0 +1,35 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Air conditioner is running but not cooling properly. Evaporator coil has been icing.
+
+Diagnosis:
+System is low on refrigerant.
+
+Diagnostic findings:
+- Suction pressure is low.
+- Evaporator coil temperature is low.
+- Evaporator coil has been icing.
+- Supply airflow feels weak.
+- Air filter is visibly dirty.
+- Several supply registers have weak airflow.
+- No total external static pressure measurement documented.
+- No supply or return static pressure measurements documented.
+- No blower speed verification documented.
+- No evaporator coil cleanliness inspection documented.
+- No duct restriction inspection documented.
+- No superheat measurement documented.
+- No subcooling measurement documented.
+
+Recommended repair:
+Add 3 pounds of refrigerant.
+
+Scope of work:
+- Add refrigerant
+- Test cooling operation
+
+Total repair price: $950
+
+Parts and labor included.
+
+90-day repair warranty.

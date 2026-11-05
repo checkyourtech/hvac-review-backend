@@ -1,0 +1,5 @@
+ARTIFICIAL SAMPLE QUOTE
+Replace control transformer — $650.
+Transformer primary input power confirmed present.
+Low-voltage control power is missing downstream.
+Transformer secondary output was not measured.

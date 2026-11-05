@@ -1,0 +1,73 @@
+HVAC REPLACEMENT PROPOSAL
+
+Customer complaint:
+Air conditioner is not cooling properly and system has experienced repeated breakdowns.
+
+Existing equipment:
+- 14-year-old split-system heat pump
+- Existing outdoor unit: 3.5 tons
+- Existing indoor air handler: matched 3.5-ton system
+- Existing equipment model numbers documented
+- Existing refrigerant system uses discontinued equipment components
+
+Diagnostic findings:
+- Compressor electrically tested and found to have abnormal winding resistance.
+- Compressor amp draw exceeds manufacturer specifications.
+- Compressor is mechanically noisy during operation.
+- Refrigerant pressures and temperatures were measured and indicate poor compressor performance.
+- Refrigerant charge was verified before condemning the compressor.
+- Indoor airflow and blower operation were verified.
+- Total external static pressure is within manufacturer limits.
+- Evaporator and condenser coils were inspected and found reasonably clean.
+- No major duct restriction was identified.
+- Repair estimate for compressor replacement and associated refrigerant work: $7,800.
+- Existing system has experienced multiple major repairs during the last 3 years.
+- Due to system age, repair cost, equipment condition, and history of repeated failures, full replacement is recommended as the better long-term option.
+
+Load and sizing evaluation:
+- Manual J load calculation completed.
+- Calculated cooling load: 41,000 BTUH.
+- Calculated heating load: 43,500 BTUH.
+- Proposed 3.5-ton heat pump capacity is appropriate for the calculated load.
+- Existing duct system evaluated for proposed airflow requirements.
+- Existing supply and return ductwork can support the proposed equipment airflow.
+- No increase in equipment capacity is recommended.
+
+Proposed replacement equipment:
+- 3.5-ton variable-speed heat pump
+- Exact outdoor model number documented in proposal
+- Exact indoor air-handler model number documented in proposal
+- Indoor and outdoor equipment are an AHRI-certified matched system.
+- AHRI reference number documented.
+- Manufacturer performance data reviewed for local design conditions.
+- Equipment capacity is consistent with the Manual J calculation.
+- Required airflow is compatible with the existing duct system.
+
+Recommended work:
+Replace existing heat pump system.
+
+Scope of work:
+- Remove existing outdoor heat pump
+- Remove existing indoor air handler
+- Install new matched 3.5-ton heat pump
+- Install new matched indoor air handler
+- Install new filter drier
+- Flush or replace refrigerant piping as required by manufacturer
+- Nitrogen purge while brazing
+- Pressure test refrigerant circuit
+- Evacuate system to manufacturer-required vacuum level
+- Charge system according to manufacturer specifications
+- Configure blower airflow
+- Verify total external static pressure
+- Verify refrigerant operation
+- Verify heating and cooling operation
+- Verify auxiliary heat operation
+- Complete startup and commissioning
+
+Total replacement price: $18,500
+
+Parts and labor included.
+
+10-year manufacturer parts warranty.
+10-year compressor warranty.
+2-year labor warranty.

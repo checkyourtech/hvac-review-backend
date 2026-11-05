@@ -1,0 +1,36 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Several rooms are uncomfortable and airflow is weak.
+
+Diagnosis:
+Ductwork needs complete replacement.
+
+Diagnostic findings:
+- Airflow is weak at several registers.
+- One bedroom is consistently warmer than the rest of the house.
+- No static pressure measurements documented.
+- No airflow measurements documented.
+- No duct leakage test documented.
+- No visual inspection documenting damaged or collapsed ductwork.
+- No return-air sizing evaluation documented.
+- No supply duct sizing evaluation documented.
+- No balancing test documented.
+- No documentation of disconnected or crushed flex duct.
+- No documentation showing that the existing duct system cannot be repaired.
+
+Recommended repair:
+Replace all supply and return ductwork.
+
+Scope of work:
+- Remove existing ductwork
+- Install new supply and return ductwork
+- Install new registers
+- Balance system
+- Test operation
+
+Total repair price: $11,500
+
+Parts and labor included.
+
+1-year parts and labor warranty.

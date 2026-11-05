@@ -1,0 +1,36 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace will not heat. Furnace completes the inducer and pressure-switch proving sequence, but the burners do not ignite.
+
+Diagnosis:
+Failed hot surface igniter.
+
+Diagnostic findings:
+- Furnace sequence of operation verified through the ignition stage.
+- Draft inducer operates normally.
+- Pressure switch closes and proves draft.
+- Control board sends 120 volts to the hot surface igniter during the ignition sequence.
+- Igniter does not glow when energized.
+- Igniter resistance tested open / out of range.
+- Igniter visually inspected and found cracked.
+- Igniter wiring and connections inspected and found secure.
+- No upstream safety or control condition was found preventing ignition.
+
+Recommended repair:
+Replace failed hot surface igniter.
+
+Scope of work:
+- Remove failed igniter
+- Install replacement igniter
+- Verify wiring and electrical connections
+- Verify proper igniter operation
+- Verify burner ignition
+- Operate furnace through a complete heating cycle
+- Confirm normal furnace operation
+
+Total repair price: $525
+
+Parts and labor included.
+
+1-year parts and labor warranty.

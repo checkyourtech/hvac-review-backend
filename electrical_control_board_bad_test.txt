@@ -1,0 +1,11 @@
+Customer reports indoor blower will not run.
+
+Technician recommends replacing the furnace control board.
+
+No voltage readings, thermostat call verification, fuse checks, transformer voltage checks, blower motor testing, capacitor testing, board output testing, or fault-code documentation are provided.
+
+Recommended repair:
+- replace furnace control board
+- verify blower operation after repair
+
+Total repair price: $1,250

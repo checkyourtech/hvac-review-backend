@@ -201,9 +201,9 @@ class MinimalEvidenceTests(unittest.TestCase):
                     if case != "sufficient":
                         self.assertNotIn("short to ground", response.text)
                     if case in {"compressor", "sufficient"}:
-                        self.assertIn("What Does the Compressor Evidence Show?", response.text)
+                        self.assertIn("What Evidence Should Support This Diagnosis?", response.text)
                     if case == "evaporator_coil":
-                        self.assertIn("What Does the Refrigerant Evidence Show?", response.text)
+                        self.assertIn("What Evidence Should Support This Diagnosis?", response.text)
 
     def test_source_presence_not_word_count(self):
         short = "Replace compressor — $4,950."

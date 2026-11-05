@@ -1,0 +1,19 @@
+Customer reports outdoor unit will not start.
+
+Technician inspected system and found a failed dual run capacitor and badly pitted contactor.
+
+Measured capacitor:
+45/5 µF rated
+Compressor side measured 18 µF
+Fan side measured 2.1 µF
+
+Contactor contacts are visibly burned and pitted.
+
+Recommended repair:
+- replace dual run capacitor
+- replace contactor
+- inspect wiring and terminals
+- verify proper voltage after repair
+- verify compressor and condenser fan operation
+
+Total repair price: $725

@@ -1,0 +1,29 @@
+Customer reports the air conditioner is running but not cooling properly.
+
+Technician inspected the outdoor condensing unit and found the compressor attempting to start.
+
+Technician tested the dual run capacitor.
+
+Capacitor rating:
+45/5 MFD +/- 6%
+
+Measured capacitance:
+Compressor/HERM: 31.2 MFD
+Fan: 4.9 MFD
+
+Incoming voltage measured at 243 volts.
+
+Contactor inspected with no significant burning or pitting found.
+
+Compressor terminals and wiring inspected with no visible damage or loose connections.
+
+Technician recommends:
+- replace 45/5 dual run capacitor
+- verify compressor and condenser fan operation
+- check operating amperage after repair
+- verify system cooling operation
+
+Total repair price: $385
+
+Repair includes parts and labor.
+1-year parts and labor warranty.

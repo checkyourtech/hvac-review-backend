@@ -1,0 +1,22 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Gas furnace will not heat.
+
+Diagnosis:
+Draft inducer motor is bad.
+
+Recommended repair:
+Replace draft inducer motor.
+
+Scope of work:
+- Remove existing inducer motor assembly
+- Install new inducer motor assembly
+- Reassemble furnace
+- Test furnace operation
+
+Total repair price: $1,425
+
+Parts and labor included.
+
+1-year parts and labor warranty.

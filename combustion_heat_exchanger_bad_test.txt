@@ -1,0 +1,38 @@
+HVAC REPAIR PROPOSAL
+
+Customer complaint:
+Furnace is heating but technician recommends replacement for safety.
+
+Diagnosis:
+Cracked heat exchanger.
+
+Diagnostic findings:
+- Furnace is approximately 15 years old.
+- Technician states heat exchanger is cracked.
+- No combustion analysis documented.
+- No flue-gas CO measurement documented.
+- No ambient CO measurement documented.
+- No visual documentation or photo of a crack or hole.
+- No borescope findings documented.
+- No burner-flame disturbance documented when blower starts.
+- No temperature-rise measurement documented.
+- No gas-pressure measurement documented.
+- No documentation of rollout, flame instability, or other combustion abnormality.
+- No documented manufacturer heat-exchanger inspection procedure.
+- No specific location or description of heat-exchanger damage provided.
+
+Recommended repair:
+Replace furnace due to unsafe cracked heat exchanger.
+
+Scope of work:
+- Remove existing furnace
+- Install new furnace
+- Connect gas piping, venting, electrical, and ductwork
+- Start and test new furnace
+
+Total replacement price: $9,850
+
+Parts and labor included.
+
+10-year parts warranty.
+1-year labor warranty.

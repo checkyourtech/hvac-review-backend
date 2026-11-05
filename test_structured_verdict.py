@@ -895,7 +895,8 @@ class StructuredVerdictPolicyTests(unittest.TestCase):
         self.assertEqual(analysis.red_flags, [])
         self.assertEqual(analysis.decision.verdict, "REVIEW_BEFORE_APPROVING")
         self.assertIn(PRICING_REQUIRED_ACTION, analysis.decision.required_actions)
-        self.assertIn("No major red flags were identified", report)
+        self.assertNotIn("<h2>Red Flags</h2>", report)
+        self.assertNotIn("No major red flags were identified", report)
 
     def test_single_quote_suppresses_comparison_sections_and_placeholders(self):
         analysis = make_analysis()
