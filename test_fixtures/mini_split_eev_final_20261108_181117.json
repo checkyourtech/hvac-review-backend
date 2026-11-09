@@ -1,0 +1,114 @@
+{
+  "project_overview": "The proposal is for a repair on a ductless mini-split system that is not cooling properly. The contractor recommends replacing the electronic expansion valve (EEV) and verifying system operation after the repair.",
+  "equipment_analysis": "The contractor recommends replacing the electronic expansion valve (EEV). The lack of valve-specific measurements and manufacturer diagnostics means we can't confirm the diagnosis with the evidence provided.",
+  "missing_information": "These gaps make it difficult to fully ascertain if replacing the EEV will resolve the issue. The refrigerant-flow findings do not yet isolate the metering device as the cause.",
+  "pricing_review": "The total quoted price for the repair is $850, which is presented as a lump sum that includes both parts and labor. However, as the components are not itemized, pricing transparency is somewhat limited. It would be beneficial to request a detailed breakdown of the costs involved.",
+  "installation_concerns": "The scope of work outlines replacing the EEV and verifying operation after the repair, which are standard procedures in this type of repair.",
+  "quote_comparison": "",
+  "best_quote_recommendation": "",
+  "contractor_vetting": "",
+  "red_flags": [
+    "The proposed refrigerant repair is not supported by the submitted evidence."
+  ],
+  "good_signs": [
+    "The quote includes a follow-up verification of system operation after the repair, which is a good practice."
+  ],
+  "contractor_questions": [
+    "What testing or manufacturer-supported findings establish that the EEV/LEV itself failed rather than another cause of the cooling problem?",
+    "Can you detail what diagnostic tests were performed to isolate the issue with the cooling of the system?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $850 total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Why: The contractor's proposed diagnosis lacks sufficient supporting evidence.; Limited pricing transparency makes it difficult to evaluate the fairness of the repair cost.; The refrigerant-flow findings do not yet isolate the metering device as the cause. Before approving: Clarify the documented refrigerant evidence and proposed repair before approving the work.; Ask for valve-specific measurements that support the proposed replacement.; Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Clarify the documented refrigerant evidence and proposed repair before approving the work.",
+      "Ask for valve-specific measurements that support the proposed replacement.",
+      "Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work."
+    ],
+    "optional_suggestions": [
+      "Consider getting a second opinion to confirm the diagnosis before proceeding with the repair."
+    ],
+    "verdict_reasons": [
+      "The contractor's proposed diagnosis lacks sufficient supporting evidence.",
+      "Limited pricing transparency makes it difficult to evaluate the fairness of the repair cost.",
+      "The refrigerant-flow findings do not yet isolate the metering device as the cause."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "total",
+          "label": "Total repair price",
+          "amount": 850.0,
+          "currency": "USD",
+          "source_text": "Total repair price: $850 lump sum, parts and labor included."
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Metering-device / refrigerant-flow condition",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "Contractor recommends replacing the electronic expansion valve (EEV) only.",
+        "Scope includes EEV replacement and verification of system operation after repair."
+      ],
+      "material_gaps": [
+        "No valve-specific measurements.",
+        "No manufacturer diagnostic results.",
+        "No component isolation findings."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "System cooling issue",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "Complaint: System is not cooling properly."
+      ],
+      "material_gaps": [
+        "No evidence provided to confirm failure of the EEV as the cause of the cooling issue."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern.",
+  "bottom_line": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward.",
+  "analysis_integrity": {
+    "status": "COMPLETE",
+    "coverage_gaps": []
+  },
+  "repair_evidence_sections": [
+    {
+      "owner": "refrigerant",
+      "title": "What Evidence Should Support This Diagnosis?",
+      "paragraphs": [
+        "The proposed refrigerant work is not supported by the submitted findings. No valve-specific measurements. No manufacturer diagnostic results. No component isolation findings.",
+        "The contractor can support the EEV/LEV diagnosis with applicable manufacturer diagnostic procedures and documented component isolation findings, distinguishing valve failure from charge, airflow, control, sensor or other refrigerant-flow conditions where relevant."
+      ]
+    }
+  ]
+}

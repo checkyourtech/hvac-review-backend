@@ -20,6 +20,33 @@ class AnalysisIntegrity(BaseModel):
 
 # Longest/specific owners first: a compressor start capacitor is a capacitor,
 # not a compressor test. Whole-equipment domains may consume multiple owners.
+# Scope aliases only: recognizing a proposed part never establishes its failure.
+CONTROL_REPAIR_ALIASES = {
+    "temperature sensor": r"(?:thermistor|temperature[- ]sensor)",
+    "control board": r"(?:inverter(?:[- ]drive)?[- ](?:PCB|(?:control[- ])?board)|drive[- ](?:PCB|board))",
+    "communication control": r"communicat(?:ion|ing)[- ](?:control[- ])?(?:wiring|module|controller|interface|component)s?",
+}
+METERING_REPAIR_ALIAS = r"(?:EEV|LEV|(?:electronic|linear)[- ]expansion[- ]valve)"
+COMPONENT_REPAIR_ALIASES = {**CONTROL_REPAIR_ALIASES, "metering device": METERING_REPAIR_ALIAS}
+COMPONENT_REPAIR_PATTERN = r"(?:(?:(?:indoor|outdoor)(?:[- ]unit)?|coil|room)[- ])?(?:" + "|".join(COMPONENT_REPAIR_ALIASES.values()) + r")"
+
+
+def component_repair_work(text):
+    """Affirmative work on the named aliases, not equipment features or test results."""
+    owners = set()
+    modifiers = r"(?:(?:the|a|an|new|failed|existing|(?:indoor|outdoor)(?:[- ]unit)?|coil|room|ductless|mini[- ]split|system)\s+)*"
+    for clause in work_scope_clauses(text):
+        for owner, pattern in COMPONENT_REPAIR_ALIASES.items():
+            for match in re.finditer(r"\b(?:replace|replacing|repair(?:ing)?|install(?:ing)?|investigate|diagnose)\s+" + modifiers + pattern +
+                                     r"\b|\b" + pattern + r"\s+(?:replacement|repair|diagnosis)\b", clause, re.I):
+                if re.search(r"\b(?:no|not|never|declined|if needed)\b", clause[:match.start()], re.I):
+                    continue
+                if re.search(r"\b(?:not (?:proposed|recommended|needed)|if needed|declined)\b", clause[match.end():], re.I):
+                    continue
+                owners.add(owner)
+    return owners
+
+
 REPAIR_OWNERS = {
     "capacitor": r"(?:(?:compressor|blower(?: motor)?|fan(?: motor)?)\s+)?(?:(?:dual|run|start|starting)\s+)*capacitor",
     "blower motor": r"blower(?:[- ]motor)?|ECM(?:[- ](?:motor|module))?",
@@ -28,7 +55,9 @@ REPAIR_OWNERS = {
     "transformer": r"(?:control\s+)?transformer",
     "contactor": r"contactor",
     "relay": r"relay|sequencer",
-    "control board": r"(?:control|defrost|circuit|furnace)\s+board|board",
+    "control board": CONTROL_REPAIR_ALIASES["control board"] + r"|(?:control|defrost|circuit|furnace)\s+board|board",
+    "temperature sensor": CONTROL_REPAIR_ALIASES["temperature sensor"],
+    "communication control": CONTROL_REPAIR_ALIASES["communication control"],
     "pressure switch": r"pressure[- ]switch",
     "limit switch": r"(?:high[- ]limit|limit|rollout)[- ]switch",
     "flame sensor": r"flame[- ]sensor",
@@ -37,7 +66,7 @@ REPAIR_OWNERS = {
     "gas valve": r"gas[- ]valve",
     "compressor": r"compressor",
     "coil": r"(?:evaporator|condenser)\s+coil",
-    "metering device": r"TXV|metering[- ]device|piston",
+    "metering device": r"TXV|metering[- ]device|piston|" + METERING_REPAIR_ALIAS,
 }
 
 
@@ -109,6 +138,13 @@ def _sentences(value):
     value = re.sub(r",?\s+(?:and|but)\s+(?=(?:(?:the )?transformer )?(?:primary|input|secondary|output)\b)",
                    "\n", value, flags=re.I)
     return [s.strip(" -•\t") for s in re.split(r"\n+|(?<=[.!?;])\s+(?=[A-Za-z])", value) if s.strip()]
+
+
+def work_scope_clauses(text):
+    """Keep separately stated work and verification from borrowing each other's parts."""
+    return [clause for sentence in _sentences(text)
+            for clause in re.split(r";|\b(?:and|but)\s+(?=(?:replace|replacing|repair(?:ing)?|install(?:ing)?|check|verify|verifying|test)\b)",
+                                   sentence, flags=re.I) if clause.strip()]
 
 
 def _polarity(value):
@@ -278,10 +314,11 @@ def remove_ungrounded_customer_claims(analysis, source, rejected):
 def material_work(text, classification=None):
     """Return existing domain owners for affirmative material proposed work."""
     owners = set()
-    for line in _sentences(text):
+    for line in work_scope_clauses(text):
         if re.search(r"\b(?:not replacing|no replacement|do not replace|declined|if needed)\b|"
+                     r"\bno (?:new )?installation\b|"
                      r"\bno\b.*(?:provided|documented|included)|not recommended|"
-                     r"\bno (?:\w+ ){0,3}(?:replacement|repair)\b", line, re.I):
+                      r"\bno (?:\w+ ){0,3}(?:replacement|repair)\b|not (?:proposed|needed)", line, re.I):
             continue
         if re.search(r"^(?:verify|check|confirm|test)\b", line, re.I):
             continue

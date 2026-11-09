@@ -6,6 +6,7 @@ results are evidence; a procedure name, proposed test or refrigerant type is not
 import re
 from dataclasses import replace
 from evidence_sufficiency import proposed_work_facts
+from evidence_integrity import METERING_REPAIR_ALIAS, component_repair_work, material_work, repair_owners, assessment_owner
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
 
 CONDITION = "Refrigerant condition supporting proposed work"
@@ -34,6 +35,11 @@ def refrigerant_evidence_review(item, source_text="", question=None):
         return None  # An investigation fee is not an already-proposed repair.
     if subject_kind(item.subject) == COIL and re.search(r"evaporator coil", source_text, re.I):
         question = question or "What evidence ties the refrigerant leak or failure to the evaporator coil being replaced?"
+    if subject_kind(item.subject) == METERING and "metering device" in component_repair_work(source_text):
+        definition = replace(definition, component="EEV/LEV",
+            expected_evidence="applicable manufacturer diagnostic procedures and documented component isolation findings, "
+                "distinguishing valve failure from charge, airflow, control, sensor or other refrigerant-flow conditions where relevant",
+            question="What testing or manufacturer-supported findings establish that the EEV/LEV itself failed rather than another cause of the cooling problem?")
     if (subject_kind(item.subject) == CONDITION and item.diagnostic_evidence_status == "INCOMPLETE"
             and item.documented_evidence):
         definition = replace(definition, expected_evidence=
@@ -139,7 +145,7 @@ def subject_kind(value):
         return value
     if re.search(r"equipment match|compatib|system siz|duct|airflow|blower|compressor|\bmotor\b|\bECM\b|inducer|condenser[- ]fan|startup|commission|pricing|cost", s, re.I):
         return None
-    if re.search(r"txv|piston|metering|refrigerant.flow|refrigerant restriction|^restriction$", s):
+    if re.search(r"txv|piston|metering|refrigerant.flow|refrigerant restriction|^restriction$|\b" + METERING_REPAIR_ALIAS + r"\b", s, re.I):
         return METERING
     if re.search(r"(?:coil|evaporator|condenser).*(?:leak|refrigerant|failure)|coil condition", s):
         return COIL
@@ -157,6 +163,8 @@ def refrigerant_items(analysis):
 
 
 def refrigerant_required(text, classification=None):
+    if "metering device" in component_repair_work(text):
+        return True
     return bool(re.search(
         r"low (?:refrigerant|charge)|undercharg|refrigerant (?:loss|leak|restriction)|leak(?:ing)? (?:evaporator|condenser|coil|service valve)|"
         r"(?:evaporator|condenser|coil).{0,30}leak|\brecharge\b|add(?:ing)? .{0,25}refrigerant|"
@@ -196,7 +204,7 @@ def source_facts(text):
                and re.search(r"coil|valve|Schrader|line.set|tubing|connection", s, re.I)
                and not re.search(r"\bno\b|\bnot\b|suspect|possible|negative|inconclusive", s, re.I)]
     coil_work = bool(re.search(r"(?:replace|replacement|repair).{0,30}(?:evaporator|condenser)?\s*coil|coil.{0,20}(?:replacement|requires replacement)", source, re.I))
-    meter_work = bool(re.search(r"(?:replace|replacement|restricted|failed).{0,25}(?:TXV|piston|metering)|(?:TXV|piston|metering).{0,30}(?:replacement|failure|restricted)", source, re.I))
+    meter_work = "metering device" in component_repair_work(text) or bool(re.search(r"(?:replace|replacement|restricted|failed).{0,25}(?:TXV|piston|metering)|(?:TXV|piston|metering).{0,30}(?:replacement|failure|restricted)", source, re.I))
     opened = [s for s in diagnostic if re.search(r"(?:circuit|system).{0,30}(?:was |intentionally )?opened|refrigerant (?:was )?recovered.{0,40}(?:repair|replace)", s, re.I)]
     justified_work = [s for s in diagnostic if re.search(r"(?:damaged|broken|confirmed leaking|documented failure|repaired|replaced).{0,40}(?:valve|coil|line.set|compressor|TXV)|(?:valve|coil|line.set|compressor|TXV).{0,40}(?:damaged|broken|repaired|replaced)", s, re.I)]
     restoration = bool(re.search(r"recharge|restor\w*.{0,20}(?:refrigerant|charge)|weigh.{0,20}charge", source, re.I))
@@ -319,6 +327,10 @@ def normalize_refrigerant_assessments(analysis, text, assessment_type, classific
 def refrigerant_question_purpose(value):
     if re.search(r"price|pricing|cost|itemiz|breakdown|warranty|coverage|startup|commissioning", value, re.I):
         return None
+    if (re.search(r"\b(?:metering[- ]device|TXV|piston|" + METERING_REPAIR_ALIAS + r")\b", value, re.I)
+            and re.search(r"diagnos|evidence|measurements?|findings?|test|fail|cause|support", value, re.I)
+            and not re.search(r"verif|after|post.repair|retest|scope|work include", value, re.I)):
+        return "refrigerant_evidence"  # Valve isolation and alternative causes are one diagnostic purpose.
     if not re.search(r"refrigerant|low charge|leak|TXV|piston|metering|coil", value, re.I):
         return None
     if re.search(r"where|location|locat", value, re.I):
@@ -385,6 +397,28 @@ def refrigerant_customer_fields(analysis, source_text=""):
     items = refrigerant_items(analysis)
     if not items:
         return
+    # A generic cooling label can repeat the valve's missing evidence. Count
+    # diagnostic purposes, not AI labels, without changing any assessment.
+    # Unknown or independently evidenced issues keep their own questions.
+    material_items = [a for a in analysis.technical_assessments if a.materiality != "MINOR"]
+    metering_only = all(subject_kind(a.subject) == METERING or (
+        assessment_owner(a.subject) is None
+        and a.diagnostic_evidence_status == "ABSENT" and a.scope_support == "UNSUPPORTED"
+        and not a.contradictions and a.material_gaps
+        and all(repair_owners(gap) == {"metering device"} for gap in a.material_gaps)
+        and repair_owners(" ".join(a.documented_evidence)) <= {"metering device"}
+    ) for a in material_items)
+    if (material_work(source_text) == {"metering device"}
+            and len(items) == 1 and metering_only
+            and subject_kind(items[0].subject) == METERING):
+        generic_words = set("can could you please explain why what there were are was is no not any the "
+                            "specific diagnostic diagnostics results measurements evidence tests testing "
+                            "or and provided documented missing available supports diagnosis "
+                            "detail which findings performed done to isolate isolates isolated isolation "
+                            "issue problem with cooling of system cause determine identify identifies poor properly".split())
+        analysis.contractor_questions = [q for q in analysis.contractor_questions if not (
+            not repair_owners(q) and set(re.findall(r"[a-z]+", q.lower())) <= generic_words
+            and re.search(r"diagnostic|measurements|evidence|findings|tests?|testing", q, re.I))]
     for name in ("equipment_analysis", "missing_information", "installation_concerns"):
         sentences = re.split(r"(?<=[.!?])\s+", getattr(analysis, name))
         setattr(analysis, name, " ".join(s for s in sentences if not refrigerant_owned(s)))

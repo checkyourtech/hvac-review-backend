@@ -55,6 +55,7 @@ from commissioning import (
     finalize_commissioning_fields, commissioning_paragraphs, compose_commissioning_summary,
     present_supported_commissioning, present_partial_commissioning, customer_source_text,
     present_bad_commissioning, present_completed_commissioning, present_failed_commissioning,
+    isolated_component_repair,
 )
 from compressor import (
     COMPRESSOR_RULES, compressor_required, compressor_items, compressor_question,
@@ -89,7 +90,7 @@ from evidence_sufficiency import (
     scope_only_questions, summarize_scope_only,
 )
 from evidence_integrity import (
-    AnalysisIntegrity, SourceEvidence, assessment_owner, material_work,
+    AnalysisIntegrity, SourceEvidence, assessment_owner, material_work, repair_owners, METERING_REPAIR_ALIAS,
     ground_assessments, remove_ungrounded_customer_claims, coverage_gaps, recovery_modules,
 )
 
@@ -567,7 +568,7 @@ Classify the following HVAC quote or quotes:
         response_format=QuoteClassification,
     )
 
-    classification = completion.choices[0].message.parsed
+    classification = component_scoped_classification(completion.choices[0].message.parsed, all_quotes_text)
     source_work = proposed_work_facts(all_quotes_text)
     if motor_work_required(all_quotes_text) and AnalysisModule.MOTORS not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.MOTORS)
@@ -602,6 +603,20 @@ Classify the following HVAC quote or quotes:
         if module not in classification.modules_required:
             classification.modules_required.append(module)
     return classification
+
+
+def component_scoped_classification(classification, quote_text):
+    """A named sensor/valve/control repair does not select new-system domains."""
+    if classification is None or not isolated_component_repair(quote_text):
+        return classification
+    return classification.model_copy(update={
+        "replacement_components": [],
+        "modules_required": [m for m in classification.modules_required if m not in {
+            AnalysisModule.SYSTEM_SIZING, AnalysisModule.EQUIPMENT_MATCHING,
+            AnalysisModule.COMMISSIONING, AnalysisModule.REPAIR_VS_REPLACE,
+        }],
+    }, deep=True)
+
 
 LEGACY_ANALYSIS_KNOWLEDGE = {
     "compressor": """
@@ -2735,7 +2750,7 @@ def repair_diagnostic_question_owner(question):
     if purpose:
         if re.search(r"coil|evaporator|condenser", question, re.I):
             return "coil_evidence"
-        if re.search(r"metering|TXV|piston", question, re.I):
+        if re.search(r"metering|TXV|piston|\b" + METERING_REPAIR_ALIAS + r"\b", question, re.I):
             return "metering_evidence"
         if purpose == "refrigerant_evidence":
             return purpose
@@ -2988,7 +3003,7 @@ def get_analysis_knowledge(
     classification: QuoteClassification,
     quote_text: str = "",
 ) -> str:
-    classification = classification.model_copy(deep=True)
+    classification = component_scoped_classification(classification.model_copy(deep=True), quote_text)
     for name in sorted(recovery_modules(material_work(quote_text, classification))):
         module = AnalysisModule(name)
         if module not in classification.modules_required:
@@ -4242,6 +4257,7 @@ def replacement_basis_question(value: str) -> bool:
         "what failed",
         "what finding",
         "what condition",
+        "what documented condition",
         "repair considered",
         "repair option",
         "repairing",
@@ -5216,6 +5232,29 @@ def build_bottom_line(decision: HVACDecision) -> str:
     )
 
 
+def unsupported_other_component_question(question: str, quote_text: str) -> bool:
+    """A component repair alone does not imply risk to other parts."""
+    if not isolated_component_repair(quote_text):
+        return False
+    other_parts = r"\b(?:other|another|additional|unrelated)\s+(?:components?|parts?)\b"
+    if (not re.search(other_parts, question, re.I)
+            or not re.search(r"\b(?:risk|could|might|may|potential|future)\b", question, re.I)
+            or not re.search(r"fail\w*|caus\w*|issues?|problems?", question, re.I)):
+        return False
+    proposed_owners = material_work(quote_text)
+    concern = r"(?:fail\w*|fault\w*|damag\w*|intermittent|malfunction\w*|defect\w*|abnormal|leak\w*|shorted|burn\w*)"
+    for line in SourceEvidence(quote_text).lines:
+        if not (repair_owners(line) - proposed_owners or re.search(other_parts, line, re.I)):
+            continue
+        # Read independent concerns from the proposal, not generated questions,
+        # flags or ungrounded model assessments. A healthy part mention is not one.
+        if (re.search(r"\b" + concern + r"\b", line, re.I)
+                and not re.search(r"\b(?:no|not|without)\b.{0,45}\b" + concern + r"\b|"
+                                  r"\b" + concern + r"\b.{0,20}(?:not (?:found|reported|observed)|ruled out)", line, re.I)):
+            return False
+    return True
+
+
 def build_contractor_questions(
     analysis: HVACAnalysis,
     quote_count: Optional[int] = None,
@@ -5240,6 +5279,8 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if category != "pricing" and unsupported_other_component_question(question, quote_text):
+            continue
         if supported_capacitor_unresolved_compressor(analysis) and category in {"verification", "commissioning"}:
             independent_purposes = {
                 contractor_question_category(s)
@@ -5872,6 +5913,17 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+    classification = component_scoped_classification(classification, quote_text)
+    if isolated_component_repair(quote_text):
+        # Apply the same scope boundary to raw structured output before domain
+        # normalization. Repair evidence and post-repair findings stay intact.
+        finalized.technical_assessments = [a for a in finalized.technical_assessments
+            if assessment_owner(a.subject) not in {"equipment matching", "replacement basis"}]
+        finalized.replacement_context = ReplacementContext.UNKNOWN
+        finalized.contractor_questions = [q for q in finalized.contractor_questions
+            if not (replacement_basis_question(q) and not repair_owners(q))]
+        finalized.missing_information = " ".join(s for s in re.split(r"(?<=[.!?])\s+", finalized.missing_information)
+            if not re.fullmatch(r"This review could not fully validate the (?:replacement basis|equipment matching) work from the submitted evidence\.", s))
     # Neither AI text nor a previous finalization may supply this snapshot.
     finalized.repair_evidence_sections = None
     # Source-free compatibility calls are not fresh production analyses. The
@@ -5961,7 +6013,7 @@ def finalize_customer_analysis(
         )
     normalize_system_sizing_customer_fields(finalized, quote_text)
     finalize_duct_fields(finalized, quote_text)
-    finalize_commissioning_fields(finalized)
+    finalize_commissioning_fields(finalized, quote_text)
     finalize_compressor_fields(finalized, quote_text)
     finalize_electrical_fields(finalized, quote_text)
     if compressor_items(finalized):
@@ -6226,6 +6278,13 @@ def finalize_customer_analysis(
                 price_index = next((i for i, q in enumerate(finalized.contractor_questions)
                                     if contractor_question_category(q) == "pricing"), len(finalized.contractor_questions))
                 finalized.contractor_questions.insert(price_index, question)
+    # Domain evidence and integrity passes can add questions after the early
+    # category pass. Enforce the customer limit on the final canonical model,
+    # retaining technical-first order and the independently justified price item.
+    questions = list(dict.fromkeys(finalized.contractor_questions))
+    pricing_questions = [q for q in questions if contractor_question_category(q) == "pricing"][:1]
+    technical_questions = [q for q in questions if contractor_question_category(q) != "pricing"]
+    finalized.contractor_questions = technical_questions[:6 - len(pricing_questions)] + pricing_questions
     return finalized
 
 

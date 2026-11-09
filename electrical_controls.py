@@ -7,7 +7,7 @@ from refrigerant_system import refrigerant_items, subject_kind, CONDITION
 from pricing import MAJOR_CHARGE_ITEMIZATION_REQUEST
 from evidence_sufficiency import proposed_work_facts
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
-from evidence_integrity import SourceEvidence
+from evidence_integrity import SourceEvidence, CONTROL_REPAIR_ALIASES, component_repair_work
 
 
 ELECTRICAL_CONTROLS_RULES = """
@@ -249,7 +249,7 @@ def proposed_components(text):
 
 
 def electrical_required(text, classification=None):
-    return bool(proposed_components(text))
+    return bool(proposed_components(text) or component_repair_work(text) & CONTROL_REPAIR_ALIASES.keys())
 
 
 def motor_or_compressor_only(text):

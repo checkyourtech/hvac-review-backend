@@ -1,6 +1,8 @@
 """Proposal-stage startup review; numerical results remain owned by domain modules."""
 import re
 from evidence_sufficiency import proposed_work_facts
+from evidence_integrity import COMPONENT_REPAIR_ALIASES, COMPONENT_REPAIR_PATTERN, component_repair_work, material_work, work_scope_clauses
+from system_sizing import component_repair_without_sizing_scope
 
 COMMISSIONING_SUBJECT = "Startup and commissioning plan for proposed equipment"
 COMMISSIONING_RULES = """
@@ -66,19 +68,33 @@ def bare_component_scope(text):
     return bool(work and work.scope_only and work.component != "complete HVAC system")
 
 
+def isolated_component_repair(text):
+    """Sensor/valve/control work is not a new-system startup project."""
+    return bool(component_repair_work(text)
+                and material_work(text) <= COMPONENT_REPAIR_ALIASES.keys()
+                and component_repair_without_sizing_scope(text)
+                and not re.search(r"whole[- ]system (?:commissioning|startup)|major (?:control|circuit) conversion|"
+                                  r"(?:startup|commissioning) (?:sheet|record|plan)|manufacturer.{0,35}(?:startup|commissioning)|"
+                                  r"(?:required|failed|excluded).{0,45}(?:verification|safety|check)|"
+                                  r"(?:verification|safety|check).{0,45}(?:required|failed|excluded)", text, re.I))
+
+
 def commissioning_required(text, classification=None):
-    if bare_component_scope(text):
+    if bare_component_scope(text) or isolated_component_repair(text):
         return False
     if isolated_compressor_repair(text):
         return False
     if isolated_coil_repair(text):
         return False
     # Source scope, not merely an equipment mention or a classifier module name.
-    scope = r"(?:replace\w*|install\w*|conversion)"
-    equipment = r"(?:full[- ]system|complete.{0,15}system|HVAC system|furnace|air[- ]handler|heat[- ]pump|condenser|mini[- ]split|package[d]?[- ]unit|VRF|multi[- ]zone|compressor|(?:evaporator|indoor) coil|refrigerant circuit|major control)"
-    for line in text.splitlines():
-        if re.search(r"\b(?:not replacing|no replacement|repair only)\b", line, re.I):
+    scope = r"(?:replace\w*|replacing|install\w*|conversion)"
+    equipment = r"(?:full[- ]system|complete.{0,15}system|HVAC system|furnace|air[- ]handler|heat[- ]pump|condenser|outdoor unit|indoor (?:unit|head)|mini[- ]split|package[d]?[- ]unit|VRF|multi[- ]zone|compressor|(?:evaporator|indoor) coil|refrigerant circuit|major control)"
+    for line in work_scope_clauses(text):
+        if re.search(r"\b(?:not replacing|no replacement|no (?:new )?installation|repair only)\b", line, re.I):
             continue
+        line = re.split(r"\b(?:with|including|includes|featuring)\b", line, maxsplit=1, flags=re.I)[0]
+        if component_repair_work(line):
+            continue  # Its parent's equipment name does not make this an installation.
         if re.search(scope + r".{0,70}" + equipment + r"|" + equipment + r".{0,45}" + scope, line, re.I):
             # A motor/component repair is not replacement of its parent equipment.
             if re.search(r"capacitor|contactor|igniter|flame.sensor|blower motor|fan motor|control board|pressure switch", line, re.I):
@@ -159,7 +175,7 @@ def source_plan(text):
 
 def normalize_commissioning_assessments(analysis, text, assessment_type, classification=None):
     items = commissioning_items(analysis)
-    if bare_component_scope(text):
+    if bare_component_scope(text) or isolated_component_repair(text):
         # No independent startup evidence exists in this fully recognized source.
         # Missing repair details alone do not establish a commissioning domain.
         analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items]
@@ -411,7 +427,69 @@ def present_partial_commissioning(analysis, quote_text, sizing, matching, ducts)
                           and not re.search(r"(?:planned|voluntary|homeowner[- ]requested).{0,70}(?:upgrade|replacement)|replacement.{0,70}homeowner[- ]requested", s, re.I)]
 
 
-def finalize_commissioning_fields(analysis):
+def generic_component_verification(value):
+    """Only routine operation confirmation; unknown/specific requirements survive."""
+    text = re.sub(r"\b" + COMPONENT_REPAIR_PATTERN + r"\b", "component", value, flags=re.I).lower()
+    # An actual exclusion or failed/unperformed check is not a request for more
+    # detail about the promised plan, even when the rest of its words are generic.
+    if re.search(r"\b(?:failed|excluded|omitted|required|must)\b|"
+                 r"\b(?:not|never)\s+(?:be\s+)?(?:verif\w*|check\w*|test\w*|confirm\w*|"
+                 r"conduct\w*|perform\w*|complet\w*|done|carried out)\b", text):
+        return False
+    words = set(re.findall(r"[a-z]+", text))
+    generic_words = set((
+        "a an the it its this that these we you will would can could should is are be been being "
+        "was were has have to of for in on and or after afterwards afterward following once when if "
+        "only post repair repaired replace replaced replacing replacement component system mini split "
+        "indoor outdoor unit proposed scope proposal quote work includes included provide provided "
+        "verify verifying verified verification confirm confirms confirmation check checks checked "
+        "test testing tested tests operation operational operates operating proper properly normal "
+        "correctly ensure ensures ensuring step steps procedure procedures how what which before "
+        "completed completion successful success issue problem resolved resolves resolution "
+        "do does not no any describe described specify specified documented documentation details "
+        "necessary important enough reasonable critical essential confirming checking "
+        "about ask request please explain explanation method methods manner process procedural "
+        "detail detailed specific specifics lacks lack lacking unclear unspecified "
+        "conduct conducted conducting perform performed performing occur occurs "
+        "clearly identifies describes describing specifies specifying functioning s contractor they take but plan"
+    ).split())
+    return bool(not words - generic_words
+                and re.search(r"verif\w*|confirm\w*|check\w*|test\w*", text)
+                and re.search(r"operat\w*|functioning|(?:issue|problem).{0,25}resolv|after replacing (?:the )?component", text))
+
+
+def finalize_component_verification_fields(analysis, text):
+    """Remove inapplicable startup claims from the model, not just its HTML."""
+    planned = any(re.search(r"(?:verif\w*|test\w*|check\w*|confirm\w*).{0,45}operat\w*|"
+                           r"operat\w*.{0,35}(?:verif\w*|test\w*|check\w*|confirm\w*)", clause, re.I)
+                  and re.search(r"\b(?:afterwards?|after|following|once|post[- ]repair)\b", clause, re.I)
+                  and not re.search(r"\b(?:no|not|never|excluded|declined|if|may|might)\b", clause, re.I)
+                  for clause in work_scope_clauses(text))
+    # Keep specific requirements, failed checks, and diagnostic/pricing concerns.
+    for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns"):
+        sentences = re.split(r"(?<=[.!?])\s+", getattr(analysis, name))
+        setattr(analysis, name, " ".join(s for s in sentences if not commissioning_question(s)
+                and not (generic_component_verification(s) and
+                         (not planned or re.search(r"\b(?:no|not|unclear|missing)\b", s, re.I)))))
+    for name in ("red_flags", "good_signs", "contractor_questions"):
+        setattr(analysis, name, [s for s in getattr(analysis, name) if not commissioning_question(s)
+                and not (generic_component_verification(s) and
+                         (name == "contractor_questions" or (name == "good_signs" and not planned)
+                          or (name == "red_flags" and planned)))])
+    for name in ("required_actions", "verdict_reasons", "optional_suggestions"):
+        setattr(analysis.decision, name, [s for s in getattr(analysis.decision, name)
+                if not commissioning_question(s) and not (planned and generic_component_verification(s))])
+    if not planned:
+        analysis.contractor_questions.append("How will operation be verified after the repair?")
+        gap = "The proposal does not describe verification of operation after the repair."
+        if gap not in analysis.missing_information:
+            analysis.missing_information = " ".join(filter(None, [analysis.missing_information, gap]))
+
+
+def finalize_commissioning_fields(analysis, quote_text=""):
+    if isolated_component_repair(quote_text):
+        finalize_component_verification_fields(analysis, quote_text)
+        return
     items = commissioning_items(analysis)
     if not items:
         return
