@@ -118,7 +118,7 @@ def isolated_compressor_repair(text):
         r"(?:replace|install).{0,20}(?:full|complete|entire).{0,20}system|"
         r"(?:replace|install) (?:the |new |existing )*(?:furnace|air.handler|heat.pump|condenser|HVAC system)|"
         r"(?:furnace|air.handler|heat.pump|condenser|HVAC system) (?:replacement|installation)", text, re.I)
-    return not independent_scope
+    return not independent_scope and component_repair_without_sizing_scope(text)
 
 
 def isolated_coil_repair(text):
@@ -429,7 +429,7 @@ def present_partial_commissioning(analysis, quote_text, sizing, matching, ducts)
 
 def generic_component_verification(value):
     """Only routine operation confirmation; unknown/specific requirements survive."""
-    text = re.sub(r"\b" + COMPONENT_REPAIR_PATTERN + r"\b", "component", value, flags=re.I).lower()
+    text = re.sub(r"\b(?:" + COMPONENT_REPAIR_PATTERN + r"|(?:inverter[- ])?compressor)\b", "component", value, flags=re.I).lower()
     # An actual exclusion or failed/unperformed check is not a request for more
     # detail about the promised plan, even when the rest of its words are generic.
     if re.search(r"\b(?:failed|excluded|omitted|required|must)\b|"
@@ -438,7 +438,7 @@ def generic_component_verification(value):
         return False
     words = set(re.findall(r"[a-z]+", text))
     generic_words = set((
-        "a an the it its this that these we you will would can could should is are be been being "
+        "a an the it its this that these we you your will would can could should is are be been being "
         "was were has have to of for in on and or after afterwards afterward following once when if "
         "only post repair repaired replace replaced replacing replacement component system mini split "
         "indoor outdoor unit proposed scope proposal quote work includes included provide provided "
@@ -446,7 +446,7 @@ def generic_component_verification(value):
         "test testing tested tests operation operational operates operating proper properly normal "
         "correctly ensure ensures ensuring step steps procedure procedures how what which before "
         "completed completion successful success issue problem resolved resolves resolution "
-        "do does not no any describe described specify specified documented documentation details "
+        "do does not no any describe described specify specified document documented documentation details "
         "necessary important enough reasonable critical essential confirming checking "
         "about ask request please explain explanation method methods manner process procedural "
         "detail detailed specific specifics lacks lack lacking unclear unspecified "
@@ -458,7 +458,7 @@ def generic_component_verification(value):
                 and re.search(r"operat\w*|functioning|(?:issue|problem).{0,25}resolv|after replacing (?:the )?component", text))
 
 
-def finalize_component_verification_fields(analysis, text):
+def finalize_component_verification_fields(analysis, text, *, recover_planned_positive=False):
     """Remove inapplicable startup claims from the model, not just its HTML."""
     planned = any(re.search(r"(?:verif\w*|test\w*|check\w*|confirm\w*).{0,45}operat\w*|"
                            r"operat\w*.{0,35}(?:verif\w*|test\w*|check\w*|confirm\w*)", clause, re.I)
@@ -479,6 +479,8 @@ def finalize_component_verification_fields(analysis, text):
     for name in ("required_actions", "verdict_reasons", "optional_suggestions"):
         setattr(analysis.decision, name, [s for s in getattr(analysis.decision, name)
                 if not commissioning_question(s) and not (planned and generic_component_verification(s))])
+    if planned and recover_planned_positive and not any(generic_component_verification(s) for s in analysis.good_signs):
+        analysis.good_signs.append("The repair scope includes verification of system operation afterward.")
     if not planned:
         analysis.contractor_questions.append("How will operation be verified after the repair?")
         gap = "The proposal does not describe verification of operation after the repair."
@@ -487,8 +489,12 @@ def finalize_component_verification_fields(analysis, text):
 
 
 def finalize_commissioning_fields(analysis, quote_text=""):
-    if isolated_component_repair(quote_text):
-        finalize_component_verification_fields(analysis, quote_text)
+    inverter_repair = bool(re.search(r"mini[- ]split|ductless|inverter", quote_text, re.I)
+                           and isolated_compressor_repair(quote_text)
+                           and not commissioning_items(analysis))
+    if isolated_component_repair(quote_text) or inverter_repair:
+        recover_verification = inverter_repair or component_repair_work(quote_text) == {"control board"}
+        finalize_component_verification_fields(analysis, quote_text, recover_planned_positive=recover_verification)
         return
     items = commissioning_items(analysis)
     if not items:

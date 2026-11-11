@@ -247,6 +247,42 @@ class SourceEvidence:
         return False
 
 
+def component_non_finding(value):
+    """Recognize clear non-findings, not a closed list of valid component tests.
+
+    Unknown source-backed observations remain with the structured assessment.
+    This guard never supplies a failure criterion or upgrades technical support.
+    """
+    parts = re.split(r";\s*|(?<=[.!?])\s+|\s+(?:and|but)\s+", value.strip())
+    if len(parts) > 1:
+        return all(component_non_finding(part) for part in parts)
+    text = value.strip(" .;:-\t").lower()
+    text = re.sub(r"^(?:diagnosis|customer complaint|technician findings):\s*", "", text)
+    text = re.sub(r"^(?:the )?(?:contractor|technician|customer) (?:reports?|reported|states?|stated) (?:that )?", "", text)
+    component = "|".join(REPAIR_OWNERS[owner] for owner in
+                         ("control board", "temperature sensor", "communication control", "compressor", "metering device"))
+    text = re.sub(r"\b(?:(?:inverter|indoor|outdoor|indoor-unit|outdoor-unit)\s+)*(?:" + component + r")\b", "component", text, flags=re.I)
+    subject = r"(?:the )?(?:component|unit|system)"
+    if re.fullmatch(subject + r"\s+(?:(?:is|was|reportedly|has|been|found|to|be)\s+)*"
+                    r"(?:bad|failed|faulty|defective|inoperative|failure confirmed|blamed for poor cooling|"
+                    r"does not (?:start|run|cool)|not (?:starting|running|cooling)|won't (?:start|run)|no-start)", text):
+        return True
+    if re.fullmatch(r"(?:" + subject + r"\s+(?:has|shows|reports)\s+)?(?:a )?(?:reported )?"
+                    r"(?:(?:component|sensor|temperature|communication|drive)\s+)*fault(?: code)?"
+                    r"(?:\s+[a-z]*\d[\w-]*)?(?:\s+(?:is|was)\s+reported)?", text):
+        return True
+    if re.fullmatch(subject + r"\s+(?:diagnostic )?(?:test|testing|tests)", text):
+        return True
+    if re.fullmatch(r"no\b.*\b(?:tests?|testing|measurements?|readings?|findings|evidence|results)\b"
+                    r"(?:\s+(?:are|were|was|is))?\s+(?:provided|documented|performed|recorded|included)", text):
+        return True
+    if (re.match(r"^(?:(?:the )?(?:contractor|technician|we)\s+)?(?:will|should|would|plan to|plans to)\b|"
+                 r"^(?:replace|verify|check|test|measure)\b", text)
+            and not re.search(r"\b(?:measured|tested|found|observed|recorded|showed)\b", text)):
+        return True
+    return False
+
+
 def ground_assessments(analysis, source):
     """Validate the actual assessment objects before any support derivation."""
     rejected = []
@@ -275,6 +311,15 @@ def ground_assessments(analysis, source):
         removed_conflicts = len(kept_conflicts) != len(item.contradictions)
         rejected.extend(c for c in item.contradictions if c not in kept_conflicts)
         item.contradictions = kept_conflicts
+        if (owner in {"compressor", "control board", "temperature sensor", "communication control", "metering device"}
+                and re.search(r"mini[- ]split|ductless|inverter", source.text, re.I)
+                and accepted and not kept_conflicts
+                and item.diagnostic_evidence_status in {"ADEQUATE", "CONFIRMED", "INCOMPLETE"}
+                and all(component_non_finding(e) for e in accepted)):
+            item.diagnostic_evidence_status = "ABSENT"
+            item.scope_support = "UNSUPPORTED"
+            if not item.material_gaps:
+                item.material_gaps = [f"The quote does not document test findings isolating failure of the {owner}."]
         if removed and item.diagnostic_evidence_status in {"CONFIRMED", "ADEQUATE"}:
             item.diagnostic_evidence_status = "INCOMPLETE"
             item.scope_support = "PARTIALLY_DEFINED"

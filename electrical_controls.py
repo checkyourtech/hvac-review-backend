@@ -7,7 +7,7 @@ from refrigerant_system import refrigerant_items, subject_kind, CONDITION
 from pricing import MAJOR_CHARGE_ITEMIZATION_REQUEST
 from evidence_sufficiency import proposed_work_facts
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
-from evidence_integrity import SourceEvidence, CONTROL_REPAIR_ALIASES, component_repair_work
+from evidence_integrity import SourceEvidence, CONTROL_REPAIR_ALIASES, component_repair_work, repair_owners, material_work, component_non_finding
 
 
 ELECTRICAL_CONTROLS_RULES = """
@@ -22,6 +22,17 @@ and igniter electrical/physical failure. Do not assess incidental healthy compon
 as new primary diagnoses. Motor/ECM motor-module failure belongs to MOTORS;
 compressor windings/ground faults/mechanical failure belong to COMPRESSOR. An independent
 capacitor or control fault is separate even when it serves a motor or compressor.
+Thermistors/temperature sensors, inverter drive boards/PCBs and communicating
+controls use these same component assessments. A reported sensor, drive or
+communication fault code alone is ABSENT, not proof of component failure.
+Meaningful input, response or communication-path findings with unresolved isolation
+are INCOMPLETE. Source-backed adequate isolation may support the proposed component.
+For a thermistor, distinguish the sensor from its wiring, connections and board
+using actual testing interpreted against supplied equipment criteria. For a drive,
+distinguish required inputs/commands and output from compressor or wiring faults.
+For communication faults, distinguish the component from wiring and peer controls.
+Do not assume thermostat calls, terminal labels, nominal control voltages or fault
+code meanings on these systems. Use only documented manufacturer requirements.
 Never let one component's failure prove another's. Combustion quality, CO, gas pressure,
 draft/venting and flame characteristics belong to FURNACE_COMBUSTION/HEAT_EXCHANGER;
 switch-state and flame-signal tests cannot establish combustion safety. Refrigerant,
@@ -131,6 +142,24 @@ CONTROL_MISSING_EVIDENCE = {
     "low-voltage control": "The quote does not document control power and signals at the proposed component or its response to those inputs.",
 }
 
+CONTROL_ALIAS_EVIDENCE = {
+    "control board": RepairEvidenceDefinition("electrical_control_board", "inverter drive board",
+        "applicable manufacturer input, command and output tests isolating the drive from compressor, wiring or communication faults; a fault code alone does not prove board failure",
+        "What manufacturer-supported input/output testing isolates the inverter drive board as the failed component?"),
+    "temperature sensor": RepairEvidenceDefinition("electrical_temperature_sensor", "thermistor",
+        "actual sensor testing interpreted against the supplied equipment criteria, with wiring, connections and control-board findings separated where relevant; a sensor fault code alone does not prove thermistor failure",
+        "What documented sensor testing isolates the thermistor itself as the failed component?"),
+    "communication control": RepairEvidenceDefinition("electrical_communication_control", "communicating control component",
+        "documented required inputs and communication-path testing separating the component from wiring, connections and peer controls; a communication fault alone does not prove a failed PCB",
+        "What communication-path testing isolates the communicating control component from its wiring and peer controller?"),
+}
+
+
+def control_alias_subject(value):
+    names = [name for name, pattern in CONTROL_REPAIR_ALIASES.items()
+             if re.search(r"\b" + pattern + r"\b", value, re.I)]
+    return names[0] if len(names) == 1 else None
+
 # Ask for input/output findings without supplying an undocumented electrical
 # rating. This copy is used only for the ABSENT-evidence presentation branch.
 TRANSFORMER_EXPECTED_EVIDENCE = (
@@ -140,8 +169,13 @@ TRANSFORMER_EXPECTED_EVIDENCE = (
 )
 
 
-def electrical_evidence_review(item, source_text=""):
+def electrical_evidence_review(item, source_text="", question=None):
     name = component_subject(item.subject)
+    alias = control_alias_subject(item.subject)
+    if name == "control board" and re.search(r"mini[- ]split|ductless|inverter", source_text, re.I):
+        alias = "control board"
+    if alias:
+        return review_repair_evidence(item, CONTROL_ALIAS_EVIDENCE[alias], source_text, question)
     if name not in CONTROL_EVIDENCE_EXAMPLES:
         return None
     examples, question = CONTROL_EVIDENCE_EXAMPLES[name], electrical_question(item)
@@ -587,7 +621,8 @@ def electrical_question_purpose(value):
         return None
     if re.search(r"compressor (?:itself|winding|failure)|motor (?:itself|failure)", value, re.I):
         return None
-    components = components_in(value)
+    alias = control_alias_subject(value)
+    components = [alias] if alias else components_in(value)
     if len(components) == 1 and re.search(r"test|evidence|fail|finding|reading|measur|replace|input|output|state|diagnos|tolerance", value, re.I):
         return "electrical_" + components[0].replace(" ", "_")
     return None
@@ -730,10 +765,18 @@ def electrical_paragraphs(analysis):
 def finalized_electrical_evidence(item, review):
     """Detailed evidence only; the diagnosis and gaps have their own fields."""
     if review.supported:
+        if control_alias_subject(item.subject):
+            return " ".join(review.documented_evidence)
         return (_supported_transformer_copy(item) or _supported_switching_copy(item)
                 or _supported_board_input_output_copy(item)
                 or " ".join([*review.documented_evidence, conclusion(item)]))
-    return " ".join([*review.documented_evidence, review.evidence_explanation])
+    evidence = review.documented_evidence
+    if control_alias_subject(item.subject) == "control board" and item.diagnostic_evidence_status == "ABSENT":
+        evidence = ["Contractor-reported statement: " + s if component_non_finding(s)
+                    and not re.search(r"\b(?:contractor|technician|reported)\b", s, re.I) else s
+                    for s in evidence]
+        evidence = [s if s.endswith((".", "?", "!")) else s + "." for s in evidence]
+    return " ".join([*evidence, review.evidence_explanation])
 
 
 def present_isolated_electrical_repair(analysis, text, reviews):
@@ -783,8 +826,59 @@ def present_isolated_electrical_repair(analysis, text, reviews):
             f"Have the contractor confirm the {name} diagnosis before approving the repair.")
 
 
+def generic_board_diagnostic_gap(value):
+    """Same untested diagnosis only; specific observations and other owners survive."""
+    if re.search(r"\d", value) or not re.search(r"diagnos|evidence|test|measur|finding", value, re.I):
+        return False
+    text = re.sub(CONTROL_REPAIR_ALIASES["control board"] + r"|\b(?:board|PCB)\b", "component", value, flags=re.I)
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    generic = set((
+        "a an the this that it its is are was were be been has have do does did will would can could "
+        "you me what which how to of for in on at by and or if as about "
+        "no not any without lack lacks missing insufficient specific detailed documented documentation "
+        "diagnosis diagnostic evidence test tests testing performed measurement measurements values "
+        "input output findings results component inverter drive fault failure failed claim "
+        "support supports supporting supported confirm confirms establish establishes determine "
+        "isolate isolates isolation provide provided show request manufacturer "
+        "raises questions accuracy unverified leave leaves lead unnecessary expense need needs "
+        "replacement replacing repair proposed recommended"
+    ).split())
+    return not words - generic
+
+
 def finalize_electrical_fields(analysis, text):
     items = electrical_items(analysis)
+    material = [a for a in analysis.technical_assessments if a.materiality != "MINOR"]
+    if (len(material) == 1 and control_alias_subject(material[0].subject) == "control board"
+            and material[0].diagnostic_evidence_status == "ABSENT"
+            and not material[0].contradictions
+            and material_work(text) == {"control board"}
+            and len(re.findall(r"(?m)^\s*QUOTE \d+", text)) <= 1):
+        # Alias diagnoses use the shared evidence review. Attribute unnamed
+        # missing-measurement wording only when this is the sole diagnosis.
+        for field in ("red_flags", "contractor_questions"):
+            setattr(analysis, field, [s for s in getattr(analysis, field) if not generic_board_diagnostic_gap(s)])
+        analysis.contractor_questions.insert(0, CONTROL_ALIAS_EVIDENCE["control board"].question)
+        analysis.installation_concerns = re.sub(
+            r"\b(?:seems|is) (?:reasonable|appropriate|justified) (?:given|based on) (?:the|this) diagnosis\b",
+            "requires evidence establishing the component failure", analysis.installation_concerns, flags=re.I)
+    # The existing shared evidence renderer also serves the accepted sensor and
+    # communicating-control aliases. Preserve already-correct customer wording
+    # and planned repair verification; fill only a missing diagnosis finding.
+    for item in analysis.technical_assessments:
+        alias = control_alias_subject(item.subject)
+        if item.materiality == "MINOR" or item in items or not alias:
+            continue
+        if item.scope_support == "UNSUPPORTED" and not any(
+                alias in repair_owners(flag) or (
+                    sum(a.materiality != "MINOR" for a in analysis.technical_assessments) == 1
+                    and re.search(r"diagnos|diagnostic|test results|failure evidence", flag, re.I))
+                for flag in analysis.red_flags):
+            analysis.red_flags.append(f"The quote recommends {CONTROL_ALIAS_EVIDENCE[alias].component} replacement without findings that establish the failure.")
+        if not unresolved(item) and item.documented_evidence and not any(
+                alias in repair_owners(sign) and not re.search(r"after|verif", sign, re.I)
+                for sign in analysis.good_signs):
+            analysis.good_signs.append(item.documented_evidence[0])
     if not items:
         return
     names = {component_subject(a.subject) for a in items}

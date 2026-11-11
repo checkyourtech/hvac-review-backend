@@ -1,0 +1,117 @@
+{
+  "project_overview": "The contractor has proposed to replace the inverter compressor on your existing ductless mini-split system due to a reported failure. They suspect the compressor is bad based on the outdoor unit not starting and an inverter fault being reported.",
+  "equipment_analysis": "This lack of specific evidence leads to uncertainty in the diagnosis.",
+  "missing_information": "The quote doesn't clearly say what startup checks will be completed or documented. The submitted findings do not establish the claimed compressor failure or support the proposed compressor work.",
+  "pricing_review": "The total repair price for the replacement of the inverter compressor is $2,400, which is a lump sum that includes both parts and labor. However, it is crucial to note that the pricing is not itemized, making it unclear what each component of the cost entails.",
+  "installation_concerns": "The contractor's proposal includes the replacement of the compressor and a verification of system operation afterward, which are appropriate steps following such a repair. However, the lack of documented evidence raising concerns necessitates a closer look at what might be missing.",
+  "quote_comparison": "Only one quote has been submitted for this repair, making it challenging to compare costs or proposed work against other contractors.",
+  "best_quote_recommendation": "Since only one quote is available, it's essential to evaluate whether the proposed work justifiably addresses the issue or if a second opinion might be warranted.",
+  "contractor_vetting": "Contractor vetting information is not provided in the quote, and it's advisable to verify the contractor's credentials and experience with mini-split systems before proceeding.",
+  "red_flags": [
+    "Lack of documented tests for the inverter drive that could clarify the fault.",
+    "The submitted findings do not establish the claimed compressor failure or support the proposed compressor work."
+  ],
+  "good_signs": [],
+  "contractor_questions": [
+    "What evidence shows the compressor itself has failed and still needs replacement?",
+    "What startup checks will be completed and documented before the job is closed out?",
+    "Can you show me any tests you performed on the inverter drive?",
+    "Will you document the verification process of the system operation after the repair?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $2,400 total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Why: The pricing transparency is limited with no detailed breakdown of costs.; The quote doesn't clearly say what startup checks will be completed or documented.; The submitted findings do not establish the claimed compressor failure or support the proposed compressor work. Before approving: Ask for evidence supporting the compressor diagnosis before approving the compressor work.; Ask for documented inverter drive input/output tests.; Confirm what startup checks will be completed and documented.; Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Ask for evidence supporting the compressor diagnosis before approving the compressor work.",
+      "Ask for documented inverter drive input/output tests.",
+      "Confirm what startup checks will be completed and documented.",
+      "Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work."
+    ],
+    "optional_suggestions": [
+      "Consider checking for other contractors’ opinions on the proposed repair.",
+      "Inquire about warranty options for the new compressor and installation."
+    ],
+    "verdict_reasons": [
+      "The pricing transparency is limited with no detailed breakdown of costs.",
+      "The quote doesn't clearly say what startup checks will be completed or documented.",
+      "The submitted findings do not establish the claimed compressor failure or support the proposed compressor work."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "labor",
+          "label": "lump sum, parts and labor included.",
+          "amount": 2400.0,
+          "currency": "USD",
+          "source_text": "$2,400 lump sum, parts and labor included."
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Claimed compressor failure",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "Inverter fault has been reported.",
+        "Contractor states that the compressor is bad."
+      ],
+      "material_gaps": [
+        "Specific isolation measurements for the compressor.",
+        "Documented inverter drive input/output tests.",
+        "Manufacturer diagnostic results confirming compressor failure."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Startup and commissioning plan for proposed equipment",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "The startup checks and documentation are not clearly described."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern.",
+  "bottom_line": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward.",
+  "analysis_integrity": {
+    "status": "COMPLETE",
+    "coverage_gaps": []
+  },
+  "repair_evidence_sections": [
+    {
+      "owner": "compressor",
+      "title": "What Evidence Should Support This Diagnosis?",
+      "paragraphs": [
+        "The submitted findings do not establish the claimed compressor failure or support the proposed compressor work.",
+        "Inverter fault has been reported.",
+        "Contractor states that the compressor is bad.",
+        "The contractor can support the compressor diagnosis with applicable manufacturer diagnostic procedures and documented compressor isolation findings, separating the compressor from the inverter drive, supply and control conditions; a no-start symptom or fault code alone does not identify the failed component."
+      ]
+    }
+  ]
+}

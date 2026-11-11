@@ -96,6 +96,10 @@ location. Low charge NEVER proves a coil, valve or line-set leak location. Coil 
 needs evidence tying the circuit problem to that coil, not just low charge. TXV/piston
 or restriction work needs evidence isolating refrigerant flow from charge, airflow,
 other restrictions, supply and control causes as applicable; no universal checklist.
+EEV/LEV diagnoses use applicable manufacturer procedures and documented valve
+isolation from charge, airflow, sensor, control and other flow conditions. Do not
+universally require conventional superheat/subcooling tests on inverter equipment.
+Fault codes, symptoms or an unexplained pressure alone do not establish valve failure.
 High superheat alone cannot condemn a TXV. Do not remotely diagnose another cause.
 
 An intentionally opened circuit for justified coil/compressor/valve/lineset/metering

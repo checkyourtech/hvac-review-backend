@@ -1,0 +1,98 @@
+{
+  "project_overview": "The proposal is for a repair on an existing ductless inverter mini-split system that the contractor diagnosed as having a failed inverter drive PCB.",
+  "equipment_analysis": "The contractor diagnosed the inverter drive PCB as failed after an inverter fault was reported. However, the proposal lacks key diagnostic tests to support this conclusion. There are no documented input/output measurements and no isolation of the drive board from potential issues with the compressor, power supply, or control faults, which raises concerns about the reliability of the diagnosis.",
+  "missing_information": "The quote does not provide specific drive input/output measurements, manufacturer diagnostic results, or clear findings that isolate the drive-board failure from other potential faults. This lack of evidence weakens the case for the proposed repair.",
+  "pricing_review": "The total quoted price is $1,250, which includes both parts and labor. However, the pricing transparency is limited, as there is no itemization of parts and labor or explanation of major cost components. It's recommended to request a breakdown for clarity before approval.",
+  "installation_concerns": "The proposed scope of replacing the outdoor inverter drive board seems reasonable given the diagnosis but is limited by the absence of supporting evidence. Verifying system operation after the repair is necessary, yet the lack of clear isolate to the drive board casts doubt on whether this will effectively resolve the issue.",
+  "quote_comparison": "No additional quotes for comparison were submitted, so there is no alternative pricing or scope to evaluate against this proposal.",
+  "best_quote_recommendation": "A comparison of multiple quotes would allow for a more thorough evaluation. Without alternatives, currently there is only this single quote to consider.",
+  "contractor_vetting": "Vetting details for this contractor such as licensing, insurance, or prior customer feedback are not provided in this proposal. It’s worth investigating this before proceeding with the repair.",
+  "red_flags": [
+    "Insufficient diagnostic documentation raises questions about the accuracy of the failure claim.",
+    "No input/output measurements leave the diagnosis unverified, which could lead to unnecessary expense if the board does not need replacement."
+  ],
+  "good_signs": [],
+  "contractor_questions": [
+    "What tests were performed to determine that the inverter drive PCB has failed?",
+    "Will you provide measurement values that support the diagnosis?",
+    "What is your plan for verifying system operation after the repair?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $1,250 total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Why: Insufficient evidence supporting diagnosed failure of the inverter drive PCB.; Lack of transparency in pricing and major cost components. Before approving: Request detailed diagnostic evidence to support the claim of the failed inverter drive PCB.; Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Request detailed diagnostic evidence to support the claim of the failed inverter drive PCB.",
+      "Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work."
+    ],
+    "optional_suggestions": [
+      "Ask for a breakdown of parts and labor in the quoted price to improve transparency."
+    ],
+    "verdict_reasons": [
+      "Insufficient evidence supporting diagnosed failure of the inverter drive PCB.",
+      "Lack of transparency in pricing and major cost components."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "total",
+          "label": "Total price",
+          "amount": 1250.0,
+          "currency": "USD",
+          "source_text": "Total price: $1,250 lump sum,"
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Inverter drive PCB failure assessment",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "Inverter fault reported",
+        "Inverter drive PCB has failed"
+      ],
+      "material_gaps": [
+        "Specific drive input/output measurements",
+        "Manufacturer diagnostic results",
+        "Isolation of drive-board failure from other potential faults"
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern.",
+  "bottom_line": "The quote does not show enough evidence to support the inverter drive board diagnosis. Get another opinion before moving forward.",
+  "analysis_integrity": {
+    "status": "COMPLETE",
+    "coverage_gaps": []
+  },
+  "repair_evidence_sections": [
+    {
+      "owner": "electrical",
+      "title": "What Evidence Should Support This Diagnosis?",
+      "paragraphs": [
+        "Inverter fault reported Inverter drive PCB has failed The contractor can support the inverter drive board diagnosis with applicable manufacturer input, command and output tests isolating the drive from compressor, wiring or communication faults; a fault code alone does not prove board failure."
+      ]
+    }
+  ]
+}

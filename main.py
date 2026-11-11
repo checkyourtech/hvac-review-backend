@@ -72,6 +72,7 @@ from electrical_controls import (
     supported_capacitor_unresolved_compressor,
     motor_or_compressor_only, motor_work_required,
     electrical_evidence_review,
+    control_alias_subject,
     finalized_electrical_evidence, present_isolated_electrical_repair,
     isolated_electrical_work,
 )
@@ -2768,8 +2769,11 @@ def finalize_repair_diagnostic_guidance(analysis, quote_text=""):
             continue
         existing_question = next((q for q in analysis.contractor_questions
             if repair_diagnostic_question_owner(q) == "compressor_evidence"), None)
-        if item in electrical_items(analysis):
-            review = electrical_evidence_review(item, quote_text)
+        if item in electrical_items(analysis) or control_alias_subject(item.subject):
+            alias = control_alias_subject(item.subject)
+            existing_control_question = next((q for q in analysis.contractor_questions
+                if alias and electrical_question_purpose(q) == "electrical_" + alias.replace(" ", "_")), None)
+            review = electrical_evidence_review(item, quote_text, existing_control_question)
             owner = "electrical"
         elif item in compressor_items(analysis):
             review = compressor_evidence_review(item, quote_text, existing_question)

@@ -2,6 +2,7 @@
 import re
 from dataclasses import replace
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
+from evidence_integrity import component_non_finding, repair_owners, material_work
 
 COMPRESSOR_SUBJECT = "Claimed compressor failure"
 COMPRESSOR_EVIDENCE = RepairEvidenceDefinition(
@@ -16,6 +17,11 @@ def compressor_evidence_review(item, source_text="", question=None):
     if item.diagnostic_evidence_status == "INCOMPLETE" and re.search(r"voltage.{0,20}drop", evidence, re.I):
         definition = replace(definition, expected_evidence=
             "findings isolating the cause of the recorded start-attempt voltage drop, separating compressor failure from its starting components or supply")
+    if re.search(r"mini[- ]split|ductless|inverter", source_text, re.I):
+        definition = replace(definition, expected_evidence=
+            "applicable manufacturer diagnostic procedures and documented compressor isolation findings, "
+            "separating the compressor from the inverter drive, supply and control conditions; "
+            "a no-start symptom or fault code alone does not identify the failed component")
     review = review_repair_evidence(item, definition, source_text, question)
     if item.diagnostic_evidence_status == "ABSENT" and not item.documented_evidence:
         review = replace(review, missing_information=(
@@ -28,6 +34,10 @@ COMPRESSOR_RULES = """
 COMPRESSOR EVIDENCE AND PROPOSED WORK
 Does the submitted proposal provide enough evidence that the compressor has failed
 and that the proposed compressor repair or replacement addresses the documented problem?
+For inverter equipment, separate compressor failure from the drive, power and
+communication/control path using applicable manufacturer procedures and documented
+component isolation. Do not assume fixed-speed starting components or test methods
+apply universally. Never interpret an unexplained fault code as a failed compressor.
 Create a PRIMARY TechnicalEvidenceAssessment with subject "Claimed compressor failure"
 whenever that diagnosis/work is material. Do not let a missing assessment silently pass.
 
@@ -187,6 +197,16 @@ def normalize_compressor_assessments(analysis, text, assessment_type, classifica
             updates.update(facts)
         elif facts and facts["diagnostic_evidence_status"] == "CONFIRMED" and not a.contradictions:
             updates.update(facts)
+        elif (facts and not a.contradictions and a.documented_evidence
+              and re.search(r"mini[- ]split|ductless|inverter", text, re.I)
+              and any("control board" in repair_owners(e) for e in a.documented_evidence)
+              and all(component_non_finding(e) or repair_owners(e) == {"control board"} or (
+                  "control board" in repair_owners(e)
+                  and re.search(r"compressor\b.{0,40}excluded as (?:the |a )?cause", e, re.I))
+                  for e in a.documented_evidence)):
+            # Drive findings can explain a no-start symptom, but cannot establish
+            # compressor failure. Keep the existing source-derived evidence level.
+            updates.update(facts)
         elif (facts and facts["diagnostic_evidence_status"] == "ABSENT" and not a.contradictions
               and a.documented_evidence and all(
                   re.search(r"capacitor|contactor|starting component", e, re.I)
@@ -205,7 +225,7 @@ def normalize_compressor_assessments(analysis, text, assessment_type, classifica
 def compressor_question(value):
     if not re.search(r"compressor", value, re.I):
         return False
-    if re.search(r"price|pricing|cost|itemiz|breakdown|warranty|coverage|evacuat|refrigerant|startup|commission|whole.system|full.system|complete system|entire system|repair.vs|after (?:the )?(?:repair|replacement)", value, re.I):
+    if re.search(r"price|pricing|cost|itemiz|breakdown|warranty|coverage|evacuat|refrigerant|startup|commission|whole.system|full.system|complete system|entire system|repair.vs|after (?:the )?(?:(?:inverter[- ])?compressor )?(?:repair|replacement)", value, re.I):
         return False
     return bool(re.search(r"fail|fault|damag|evidence|diagnos|ground|winding|isolat|start|input|power|replace|replacement|test|new compressor|\bwhy\b", value, re.I))
 
@@ -254,7 +274,10 @@ def compressor_paragraphs(analysis):
     items = compressor_items(analysis)
     if not items:
         return []
-    evidence = list(dict.fromkeys(s for a in items for s in a.documented_evidence))
+    evidence = list(dict.fromkeys(
+        "Contractor-reported statement: " + s if a.diagnostic_evidence_status == "ABSENT"
+        and component_non_finding(s) and not re.search(r"\b(?:contractor|technician|reported)\b", s, re.I) else s
+        for a in items for s in a.documented_evidence))
     if not evidence and all(a.diagnostic_evidence_status == "ABSENT" for a in items):
         return ["The proposal does not include compressor test results that show the compressor has failed."]
     if compressor_normal_after_start_repair(analysis):
@@ -299,20 +322,41 @@ def _mandatory_capacitor_diagnostic_sequence(value):
                     and re.search(r"\b(?:no|not|missing)\b", value, re.I)))
 
 
+def generic_inverter_isolation_gap(value):
+    """Only generic drive-testing requests, not independently observed faults."""
+    text = value.lower().replace("-", " ")
+    if not re.search(r"inverter drive", text) or not re.search(r"test|evidence|finding", text):
+        return False
+    words = set(re.findall(r"[a-z]+", text))
+    generic = set((
+        "a an the any no not is are was were has have been what which can could you me "
+        "show provide provided ask for of on at to that this and or input output inverter drive "
+        "test tests testing performed documented document documentation findings evidence results "
+        "missing lack lacks without clarify fault diagnosis issue problem confirm establish "
+        "please explain needed needs required"
+    ).split())
+    return not words - generic
+
+
 def finalize_compressor_fields(analysis, source_text=""):
     items = compressor_items(analysis)
     if not items:
         return
+    inverter_isolation = bool(re.search(r"mini[- ]split|ductless|inverter", source_text, re.I)
+                              and material_work(source_text) == {"compressor"}
+                              and not any(a not in items and a.materiality != "MINOR"
+                                          for a in analysis.technical_assessments))
+    owned_question = lambda value: compressor_question(value) or (inverter_isolation and generic_inverter_isolation_gap(value))
     for name in ("equipment_analysis", "missing_information"):
         if name == "equipment_analysis" and any(re.search(r"replacement basis|basis for|repair.vs", a.subject, re.I)
                                                  for a in analysis.technical_assessments if a not in items):
             continue  # Replacement-basis synthesis may legitimately cite the diagnosis.
         sentences = re.split(r"(?<=[.!?])\s+", getattr(analysis, name))
-        setattr(analysis, name, " ".join(s for s in sentences if not compressor_question(s)))
+        setattr(analysis, name, " ".join(s for s in sentences if not owned_question(s)))
     for name in ("red_flags", "good_signs", "contractor_questions"):
-        setattr(analysis, name, [s for s in getattr(analysis, name) if not compressor_question(s)])
+        setattr(analysis, name, [s for s in getattr(analysis, name) if not owned_question(s)])
     for name in ("required_actions", "verdict_reasons"):
-        setattr(analysis.decision, name, [s for s in getattr(analysis.decision, name) if not compressor_question(s)])
+        setattr(analysis.decision, name, [s for s in getattr(analysis.decision, name) if not owned_question(s)])
     unresolved = any(_unresolved(a) for a in items)
     conclusion = compressor_conclusion(items)
     if unresolved:
@@ -334,6 +378,7 @@ def finalize_compressor_fields(analysis, source_text=""):
         analysis.decision.required_actions.insert(0, "Ask for evidence supporting the compressor diagnosis before approving the compressor work.")
         analysis.decision.verdict_reasons.append(conclusion)
         analysis.contractor_questions.append(
+            "What testing establishes compressor failure rather than an inverter-drive or control problem?" if inverter_isolation else
             "What evidence shows the compressor itself has failed and still needs replacement?" if any(_bad(a) for a in items) else
             "What testing separates a compressor failure from the starting-component or power issue?")
         if any(_bad(a) for a in items):
