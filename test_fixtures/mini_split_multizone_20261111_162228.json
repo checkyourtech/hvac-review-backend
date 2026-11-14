@@ -1,0 +1,155 @@
+{
+  "project_overview": "The proposal outlines the installation of a new three-zone ductless mini-split heat pump system with one outdoor unit and three indoor units in an existing residence in Reno, NV.",
+  "equipment_analysis": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. The proposed outdoor unit has a nominal capacity of 24,000 BTU/h, while the combined nominal capacity of the indoor units is 30,000 BTU/h. However, the exact manufacturer and model numbers for the equipment are not specified.",
+  "missing_information": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. The quote does not include the home's calculated heating and cooling loads. The quote doesn't clearly say what startup checks will be completed or documented. This review could not fully validate the replacement basis work from the submitted evidence.",
+  "pricing_review": "The total quoted price is $13,500, which includes both labor and equipment. However, there is no itemized breakdown that details the costs for each component or phase of the work.",
+  "installation_concerns": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. However, the lack of load calculations or a heating capacity assessment means there is insufficient evidence to confirm that the proposed system will adequately meet the home's heating and cooling needs, especially in variable weather conditions in Reno.",
+  "quote_comparison": "There is only one quote provided, so no direct comparative evaluation can be made regarding alternative offers or pricing.",
+  "best_quote_recommendation": "Not applicable as this evaluation is limited to a single proposal.",
+  "contractor_vetting": "There is no information about the contractor's licensing, insurance, or history of performance included in the quote, which should be verified before proceeding with any work.",
+  "red_flags": [
+    "Missing manufacturer and exact model numbers for equipment."
+  ],
+  "good_signs": [
+    "The installation scope includes critical procedures such as pressure testing and system evacuation, which are indicative of a thorough installation process.",
+    "The contractor commits to verifying system operation after installation."
+  ],
+  "contractor_questions": [
+    "What startup checks will be completed and documented before the job is closed out?",
+    "Can you provide the load summary and explain how it supports this system size?",
+    "Can you provide the manufacturer combination documentation for the proposed indoor and outdoor models?",
+    "Can you explain how the proposed capacities for the indoor and outdoor units were selected?",
+    "What specific model numbers and manufacturer details can you provide for the equipment proposed?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $13,500 total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. The quote shows what size system they're selling you, but not how they arrived at it. Get the sizing results before approving the equipment.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Request detailed manufacturer and model numbers for the proposed equipment.",
+      "Ask for manufacturer-approved combination table and connected-zone capacity documentation.",
+      "Inquire about documented individual room load calculations and low-outdoor-temperature capacity data.",
+      "Request an explanation of why supplemental heating assessment details were omitted.",
+      "Seek an itemized breakdown of the quoted total to better understand pricing.",
+      "Clarify the proposed system size using the building-specific sizing information before approval.",
+      "Confirm what startup checks will be completed and documented."
+    ],
+    "optional_suggestions": [
+      "Consider obtaining additional quotes for competitive pricing and comprehensive evaluations.",
+      "Ask for references or reviews from previous clients to gauge contractor performance."
+    ],
+    "verdict_reasons": [
+      "Lack of essential equipment information raises compatibility concerns.",
+      "Absence of detailed load calculations could lead to inadequate system performance.",
+      "Limited pricing transparency may mask overspending without a clear itemization.",
+      "The quote doesn't clearly say what startup checks will be completed or documented."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "labor",
+          "label": "lump sum, equipment and labor included.",
+          "amount": 13500.0,
+          "currency": "USD",
+          "source_text": "$13,500 lump sum, equipment and labor included."
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Capacity justification for proposed HVAC system",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Proposed outdoor unit has a nominal capacity of 24,000 BTU/h.",
+        "Combined indoor units have a nominal capacity of 30,000 BTU/h.",
+        "Submitted sizing source:\nProject:\nInstall a new three-zone ductless mini-split\nheat pump in an existing residence in Reno, NV.\n\nProposed equipment:\nOne outdoor heat pump, nominal 24,000 BTU/h.\nTwo indoor wall units, nominal 9,000 BTU/h each.\nOne indoor wall unit, nominal 12,000 BTU/h.\n\nCombined indoor nominal capacity: 30,000 BTU/h.\nOutdoor nominal capacity: 24,000 BTU/h."
+      ],
+      "material_gaps": [
+        "No manufacturer or model numbers provided.",
+        "Absence of a manufacturer-approved combination table.",
+        "No connected-zone capacity documentation."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Load assessment for proposed HVAC system",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "No documented individual room load calculations provided.",
+        "No low-outdoor-temperature heating capacity data."
+      ],
+      "material_gaps": [
+        "Need for room-by-room load calculations to ensure proper sizing."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Installation assessment for proposed HVAC work",
+      "materiality": "MATERIAL_SECONDARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "Detailed HVAC standards or manufacturer requirements for installation are missing."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Quoted indoor/outdoor equipment compatibility",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "The submitted information does not establish an approved combination for the proposed and retained equipment."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Startup and commissioning plan for proposed equipment",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Startup and operational verification.",
+        "Contractor will verify system operation"
+      ],
+      "material_gaps": [
+        "The startup checks and documentation are not clearly described."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair. The system size still needs clarification before approval.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern. The system size needs a closer look before approval.",
+  "bottom_line": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. The quote shows what size system they're selling you, but not how they arrived at it. Get the sizing results before approving the equipment.",
+  "analysis_integrity": {
+    "status": "INCOMPLETE",
+    "coverage_gaps": [
+      "replacement basis"
+    ]
+  },
+  "repair_evidence_sections": []
+}

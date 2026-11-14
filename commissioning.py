@@ -2,7 +2,7 @@
 import re
 from evidence_sufficiency import proposed_work_facts
 from evidence_integrity import COMPONENT_REPAIR_ALIASES, COMPONENT_REPAIR_PATTERN, component_repair_work, material_work, work_scope_clauses
-from system_sizing import component_repair_without_sizing_scope
+from system_sizing import component_repair_without_sizing_scope, mini_split_installation_scope, new_mini_split_installation
 
 COMMISSIONING_SUBJECT = "Startup and commissioning plan for proposed equipment"
 COMMISSIONING_RULES = """
@@ -52,6 +52,28 @@ Good Signs. Use one concise action and question about the actual unresolved plan
 or failed check, not a checklist. Speak naturally: the quote includes startup,
 but it doesn't say what will be checked or documented. Explain what is promised,
 what is checked, what records are provided and what remains unclear.
+
+MINI-SPLIT INSTALLATION AND RETROFIT PLAN
+For actual new/major-unit mini-split work, use this existing plan assessment for
+material installation provisions: refrigerant piping, applicable pipe sizes,
+length/lift, pressure testing, evacuation, charge adjustments, electrical supply
+and communication connections, condensate drainage, and final performance checks.
+Evaluate the submitted equipment requirements; never invent pressures, vacuum
+targets, charge quantities, conductor sizes, voltages or fault-code meanings.
+Retained line sets need a documented suitability basis or a plan to verify it
+against the applicable manufacturer requirements before reuse. Existing pipe is
+neither automatically compatible nor incompatible. Include refrigerant suitability,
+condition and applicable dimensional limits only where material to the scope.
+Likewise distinguish equipment-level control compatibility (EQUIPMENT_MATCHING)
+from the planned field connections. Do not create electrical/component failure
+diagnoses or a refrigerant fault from these installation tasks.
+Keep material unresolved installation details in material_gaps (INCOMPLETE /
+PARTIALLY_DEFINED); a reasonable manufacturer-based installation/verification plan
+does not need every procedural detail or completed readings at proposal stage.
+Only a source-documented conflict with an applicable requirement is CONTRADICTORY /
+UNSUPPORTED. Preserve it even when the general startup plan is adequate. Combine
+equivalent gaps/questions; preserve independent documented conflicts. Do not apply
+this installation checklist to isolated component repairs.
 """
 
 
@@ -151,7 +173,8 @@ def source_plan(text):
     lines = [s.strip(" -\t") for s in re.split(r"\n|(?<=[.!?])\s+(?=[A-Z])", text) if s.strip()]
     relevant = [s for s in lines if re.search(
         r"startup|start-up|commission|checkout|final.*(?:reading|check|verification)|manufacturer.*procedure|"
-        r"verify.*(?:operation|control|safet)|deficien.*closeout|check.*(?:passed|failed)", s, re.I)]
+        r"verify.*(?:operation|control|safet)|deficien.*closeout|check.*(?:passed|failed)", s, re.I)
+        or (mini_split_installation_scope(text) and re.search(r"pressure[- ]test|evacuation", s, re.I))]
     completed = bool(re.search(r"(?:startup|commissioning) (?:sheet|record) (?:attached|supplied)|completed startup record", text, re.I))
     failures = [s for s in relevant if re.search(r"\b(?:failed|fail)\b", s, re.I)
                 and re.search(r"material|required", s, re.I)
@@ -161,6 +184,10 @@ def source_plan(text):
         r"(?:startup|final verification|startup testing) (?:is |will be )?(?:excluded|not included|not performed)|"
         r"(?:excludes?|will not perform) (?:the )?(?:required startup.{0,50}check|startup testing|startup|final verification)\b", s, re.I)]
     conflict = exclusions or (failures if completed else [])
+    if mini_split_installation_scope(text):
+        conflict += [s for s in relevant if re.search(r"pressure[- ]test|evacuation", s, re.I)
+                     and re.search(r"will not (?:be )?(?:perform|done)|(?:is|are|will be) (?:omitted|excluded)|"
+                                   r"(?:omit|exclude|skip)(?:s|ped)? (?:the )?(?:pressure[- ]test|evacuation)", s, re.I)]
     if conflict:
         return "CONTRADICTORY", "UNSUPPORTED", relevant, conflict, completed
     affirmative = [s for s in relevant if not re.search(r"\b(?:no|not|excluded|missing|unclear)\b", s, re.I)]
@@ -173,8 +200,30 @@ def source_plan(text):
     return ("ADEQUATE" if supported else "INCOMPLETE", "APPROPRIATE" if supported else "PARTIALLY_DEFINED", relevant, [], completed)
 
 
+def installation_detail(value):
+    """Field-installation provisions, not component failure evidence."""
+    return bool(re.search(r"line[- ]?sets?|piping|pipe sizes?|pipe length|lift|pressure[- ]test|evacuation|"
+                          r"charge adjustment|electrical (?:instructions|supply|connections)|supply circuit|"
+                          r"communication wiring|condensate|drainage", value, re.I))
+
+
+def installation_plan_issues(item):
+    return [s for s in item.contradictions + item.material_gaps if installation_detail(s)]
+
+
+def planned_installation_tasks(evidence):
+    affirmative = " ".join(s for s in evidence if not re.search(r"\b(?:no|not|excluded|missing|failed)\b", s, re.I))
+    return [label for pattern, label in (
+        (r"pressure test", "pressure testing"), (r"evacuation", "evacuation"),
+        (r"operational verification|verif\w*.{0,30}operation", "operational verification"),
+    ) if re.search(pattern, affirmative, re.I)]
+
+
 def normalize_commissioning_assessments(analysis, text, assessment_type, classification=None):
     items = commissioning_items(analysis)
+    if mini_split_installation_scope(text):
+        items += [a for a in analysis.technical_assessments if a not in items and a.materiality != "MINOR"
+                  and re.search(r"^scope of installation|^installation (?:scope|plan)", a.subject, re.I)]
     if bare_component_scope(text) or isolated_component_repair(text):
         # No independent startup evidence exists in this fully recognized source.
         # Missing repair details alone do not establish a commissioning domain.
@@ -200,6 +249,28 @@ def normalize_commissioning_assessments(analysis, text, assessment_type, classif
                      if re.search(r"exclud|failed|will not|not performed", c, re.I)]
     if real_conflicts:
         status, scope, conflicts = "CONTRADICTORY", "UNSUPPORTED", list(dict.fromkeys(conflicts + real_conflicts))
+    gaps = ["The startup checks and documentation are not clearly described."] if scope == "PARTIALLY_DEFINED" else []
+    if (mini_split_installation_scope(text) and scope == "PARTIALLY_DEFINED"
+            and "operational verification" in planned_installation_tasks(evidence)):
+        gaps = ["The proposal includes operational verification but does not identify the startup results or records to be provided."]
+    if mini_split_installation_scope(text):
+        # These structured conflicts have already passed source grounding. A
+        # general startup promise cannot erase independent field requirements.
+        details = [s for a in items for s in a.material_gaps if installation_detail(s)]
+        conflicts = list(dict.fromkeys(conflicts + [c for a in items for c in a.contradictions if installation_detail(c)]))
+        lines = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", text) if s.strip()]
+        reuse = [s for s in lines if re.search(r"reus|retain", s, re.I) and re.search(r"line[- ]?sets?", s, re.I)]
+        reuse_basis = any(re.search(r"manufacturer|supplied.*requirements", s, re.I)
+                          and re.search(r"permit|meet|approv|verif", s, re.I)
+                          and not re.search(r"not|missing|unknown|prohibit", s, re.I) for s in reuse)
+        if reuse and not reuse_basis and not any(installation_detail(c) for c in conflicts):
+            details.append("The basis for existing line-set reuse, including applicable pipe sizes and refrigerant suitability, is not documented.")
+        gaps = list(dict.fromkeys(gaps + details))
+        evidence = list(dict.fromkeys(evidence + reuse + [e for a in items for e in a.documented_evidence if installation_detail(e)]))
+        if conflicts:
+            status, scope = "CONTRADICTORY", "UNSUPPORTED"
+        elif gaps:
+            status, scope = "INCOMPLETE", "PARTIALLY_DEFINED"
     if not text.strip() and items:
         return  # Compatibility callers without source cannot be source-recalibrated.
     assessment = assessment_type(
@@ -207,7 +278,7 @@ def normalize_commissioning_assessments(analysis, text, assessment_type, classif
         materiality="PRIMARY" if material else items[0].materiality,
         diagnostic_evidence_status=status, scope_support=scope,
         documented_evidence=evidence,
-        material_gaps=["The startup checks and documentation are not clearly described."] if scope == "PARTIALLY_DEFINED" else [],
+        material_gaps=gaps,
         contradictions=conflicts,
     )
     analysis.technical_assessments = [a for a in analysis.technical_assessments if a not in items] + [assessment]
@@ -281,6 +352,10 @@ def commissioning_paragraphs(analysis):
     if not items:
         return []
     item = items[0]
+    details = installation_plan_issues(item)
+    if details:
+        return ["The installation plan has unresolved provisions: " + " ".join(customer_source_text(s) for s in dict.fromkeys(item.contradictions + item.material_gaps)),
+                "Clarify these provisions against the submitted equipment requirements before installation."]
     if item.scope_support == "UNSUPPORTED":
         if failed_shutdown_record(analysis):
             return ["The submitted completed startup record marks the required safety-shutdown check as failed. "
@@ -291,6 +366,10 @@ def commissioning_paragraphs(analysis):
         return [("The supplied startup record shows an unresolved failed check: " if completed
                  else "The proposed startup work excludes a documented requirement: ") + " ".join(customer_source_text(s) for s in item.contradictions)]
     if item.scope_support == "PARTIALLY_DEFINED":
+        tasks = planned_installation_tasks(item.documented_evidence)
+        if "operational verification" in tasks and any("startup results or records" in gap for gap in item.material_gaps):
+            return ["The proposal includes " + ", ".join(tasks) + ".",
+                    "Clarify which startup results or records will be provided after installation."]
         return ["The quote doesn't clearly say what startup checks will be completed or what results you'll receive.",
                 "Confirm the startup checks and documentation before approving the work."]
     completed = source_plan("\n".join(item.documented_evidence))[-1]
@@ -512,6 +591,56 @@ def finalize_commissioning_fields(analysis, quote_text=""):
         setattr(analysis, name, [s for s in getattr(analysis, name) if not owned(s)])
     analysis.decision.required_actions = [s for s in analysis.decision.required_actions if not commissioning_text(s)]
     analysis.decision.verdict_reasons = [s for s in analysis.decision.verdict_reasons if not commissioning_text(s)]
+    details = installation_plan_issues(item)
+    if mini_split_installation_scope(quote_text) and details:
+        # Keep the source-specific issue visible in JSON and the existing report
+        # sections. Do not describe a piping/wiring conflict as a failed startup.
+        analysis.red_flags = list(dict.fromkeys(analysis.red_flags + item.contradictions))
+        issues = list(dict.fromkeys(item.contradictions + item.material_gaps))
+        # A missing procedure description is an open plan question, not proof
+        # that the work will be omitted. Preserve independently documented defects.
+        procedure = r"pressure[- ]test|evacuation"
+        if any(re.search(procedure, gap, re.I) for gap in item.material_gaps) and not any(
+                re.search(procedure, conflict, re.I) for conflict in item.contradictions):
+            analysis.red_flags = [s for s in analysis.red_flags if not (
+                re.search(procedure, s, re.I) and re.search(r"absen|missing|not (?:detailed|documented|described)|lack", s, re.I))]
+        # These questions are answered by the same installation-plan request.
+        analysis.contractor_questions = [q for q in analysis.contractor_questions if not (
+            re.search(procedure, q, re.I) and any(re.search(procedure, s, re.I) for s in issues))]
+        concern = "Installation plan: " + "; ".join(s.rstrip(".") for s in issues) + "."
+        if re.match(r"No (?:important|material).*missing", analysis.missing_information, re.I):
+            analysis.missing_information = ""
+        if concern not in analysis.missing_information:
+            analysis.missing_information = " ".join(filter(None, [analysis.missing_information, concern]))
+        questions = []
+        if any(re.search(r"line[- ]?set|pipe sizes?|refrigerant suitability", s, re.I) for s in issues):
+            conflict = any(re.search(r"line[- ]?set|piping|pipe size", s, re.I) for s in item.contradictions)
+            questions.append("How will the documented line set conflict be resolved before the existing piping is reused?" if conflict else
+                             "What refrigerant does the retained equipment use, and what confirms the existing line-set size and suitability for reuse?")
+            analysis.contractor_questions = [q for q in analysis.contractor_questions if not (
+                re.search(r"what refrigerant type|line[- ]?set.*(?:reuse|suitab)|basis for existing line", q, re.I)
+                and not re.search(r"\b(?:separate|another|other system|leak|diagnos\w*|fault|failed)\b", q, re.I))]
+        if any(re.search(r"electrical|communication", s, re.I) for s in issues):
+            questions.append("How will the electrical and communication connections meet the submitted installation requirements?")
+        if any(re.search(r"condensate|drainage", s, re.I) for s in issues):
+            questions.append("How will condensate drainage meet the submitted installation requirements?")
+        if any(commissioning_text(s) or re.search(procedure, s, re.I) for s in issues):
+            questions.append("What pressure-testing, evacuation and startup checks will be completed and documented?" if any(
+                re.search(procedure, s, re.I) for s in issues) else
+                "What startup checks and results will be documented after installation?")
+        analysis.contractor_questions = questions + analysis.contractor_questions
+        analysis.decision.required_actions = list(dict.fromkeys(analysis.decision.required_actions + [
+            "Clarify the documented installation and commissioning provisions before approval."]))
+        analysis.decision.verdict_reasons = list(dict.fromkeys(analysis.decision.verdict_reasons + [concern]))
+        plan = source_plan(quote_text)
+        if plan[1] == "APPROPRIATE":
+            analysis.good_signs.append("The supplied startup record documents completed checks."
+                                       if plan[-1] else "The proposed startup work includes documentation of the checks after installation.")
+        elif "operational verification" in planned_installation_tasks(item.documented_evidence):
+            positive = "The proposal includes operational verification after installation."
+            if positive not in analysis.good_signs:
+                analysis.good_signs.append(positive)
+        return
     if item.scope_support == "APPROPRIATE":
         completed = source_plan("\n".join(item.documented_evidence))[-1]
         analysis.good_signs.append("The supplied startup record documents completed checks."
@@ -532,6 +661,14 @@ def finalize_commissioning_fields(analysis, quote_text=""):
         concern = "The quote doesn't clearly say what startup checks will be completed or documented."
         action = "Confirm what startup checks will be completed and documented."
         question = "What startup checks will be completed and documented before the job is closed out?"
+        tasks = planned_installation_tasks(item.documented_evidence)
+        if new_mini_split_installation(quote_text) and "operational verification" in tasks:
+            concern = "The proposal includes operational verification but does not identify the startup results or records to be provided."
+            action = "Confirm which startup results or records will be provided after installation."
+            question = "What startup results will be documented and provided after installation?"
+            analysis.good_signs = [s for s in analysis.good_signs if not (
+                re.search(r"pressure test|evacuation|verif\w*.*operation|operational verification", s, re.I))]
+            analysis.good_signs.append("The proposal includes " + ", ".join(tasks) + ".")
     if re.search(r"^No (?:important|material|critical).*missing|^No important information", analysis.missing_information, re.I):
         analysis.missing_information = ""
     analysis.missing_information = " ".join(filter(None, [analysis.missing_information, concern]))
@@ -549,6 +686,13 @@ def compose_commissioning_summary(analysis):
            for a in analysis.technical_assessments):
         return
     partial = items[0].scope_support == "PARTIALLY_DEFINED"
+    if installation_plan_issues(items[0]):
+        explanation = commissioning_paragraphs(analysis)[0]
+        analysis.banner_explanation = explanation
+        analysis.homeowner_takeaway = explanation
+        analysis.bottom_line = "Resolve the documented installation provisions before approving the work."
+        analysis.recommendation = analysis.decision.verdict.replace("_", " ") + " — " + explanation
+        return
     explanation = ("The remaining question is how the contractor will start up and document the installed system."
                    if partial else commissioning_paragraphs(analysis)[0])
     analysis.banner_explanation = explanation

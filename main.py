@@ -5,6 +5,7 @@ import base64
 import smtplib
 import urllib.request
 import re
+import logging
 from dataclasses import replace
 from enum import Enum
 from email.message import EmailMessage
@@ -16,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pathlib import Path
 import uuid
-from openai import OpenAI
+from openai import OpenAI, LengthFinishReasonError
 from pydantic import BaseModel, Field
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
@@ -31,6 +32,7 @@ from system_sizing import (
     sizing_display_values,
     comparable_heat_pump_plan,
     component_repair_without_sizing_scope,
+    mini_split_installation_scope, new_mini_split_installation,
 )
 from pypdf import PdfReader
 from duct_airflow import (
@@ -193,6 +195,9 @@ class HVACAnalysis(BaseModel):
     banner_explanation: str = ""
     homeowner_takeaway: str = ""
     bottom_line: str = ""
+    support_heading: Literal["Diagnostic Support", "Installation Support"] = Field(
+        default="Diagnostic Support", description="Finalizer-owned display heading derived from submitted scope."
+    )
     analysis_integrity: AnalysisIntegrity = Field(default_factory=AnalysisIntegrity)
     repair_evidence_sections: Optional[List[RepairEvidenceSection]] = Field(
         default=None, description="Finalizer-owned customer evidence sections; leave null in the raw analysis."
@@ -589,6 +594,8 @@ Classify the following HVAC quote or quotes:
           and re.search(r"R-(?:410A|454B|32)|factory charge|charge per manufacturer|refrigerant compatibility", all_quotes_text, re.I)
           and not re.search(r"diagnos|recharge|leak|circuit.*repair|refrigerant.*(?:measurement|test result)", all_quotes_text, re.I)):
         classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.REFRIGERANT_SYSTEM]
+    if mini_split_installation_scope(all_quotes_text) and AnalysisModule.EQUIPMENT_MATCHING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.EQUIPMENT_MATCHING)
     if commissioning_required(all_quotes_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
     elif bare_component_scope(all_quotes_text):
@@ -608,6 +615,11 @@ Classify the following HVAC quote or quotes:
 
 def component_scoped_classification(classification, quote_text):
     """A named sensor/valve/control repair does not select new-system domains."""
+    if classification is not None and new_mini_split_installation(quote_text):
+        return classification.model_copy(update={
+            "replacement_components": [],
+            "modules_required": [m for m in classification.modules_required if m != AnalysisModule.REPAIR_VS_REPLACE],
+        }, deep=True)
     if classification is None or not isolated_component_repair(quote_text):
         return classification
     return classification.model_copy(update={
@@ -2534,6 +2546,20 @@ know these models are compatible" based on training-data memory.
 
 SYSTEM-SPECIFIC APPLICATION
 
+For single-zone, multi-zone and ducted mini-splits, identify the proposed outdoor
+and each indoor model, any retained equipment, the submitted approved combination,
+connected-zone count/limits and individual-zone capacity restrictions. An approved
+combination need not have equal summed indoor and outdoor nominal capacities.
+Neither the sum nor unequal model capacity codes proves incompatibility or available
+simultaneous output. Missing combination/limit documentation is INCOMPLETE, not a
+known mismatch. Only supplied manufacturer criteria can establish a combination
+conflict. Preserve the exact zone/model identities; do not borrow approval from
+another combination. SYSTEM_SIZING owns zone loads and design-condition output.
+For retrofits, include retained indoor/outdoor equipment, refrigerant application
+and communicating-control compatibility in this same assessment. Do not assume
+standard thermostat wiring or voltage. COMMISSIONING owns the installation plan
+for retained piping, field electrical/communication connections and condensate.
+
 For a furnace, coil, and condenser system, evaluate the submitted condenser/coil match,
 refrigerant application, metering-device information, furnace/blower suitability when
 documented, materially relevant cabinet/coil relationship, and combination-specific
@@ -3027,6 +3053,8 @@ def get_analysis_knowledge(
         classification.modules_required = [m for m in classification.modules_required if m != AnalysisModule.COMPRESSOR]
     if refrigerant_required(quote_text, classification) and AnalysisModule.REFRIGERANT_SYSTEM not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.REFRIGERANT_SYSTEM)
+    if mini_split_installation_scope(quote_text) and AnalysisModule.EQUIPMENT_MATCHING not in classification.modules_required:
+        classification.modules_required.append(AnalysisModule.EQUIPMENT_MATCHING)
     if commissioning_required(quote_text, classification) and AnalysisModule.COMMISSIONING not in classification.modules_required:
         classification.modules_required.append(AnalysisModule.COMMISSIONING)
     elif bare_component_scope(quote_text):
@@ -3432,6 +3460,8 @@ def primary_equipment_matching_assessment(
             ]
         )
         canonical_matching_subject = "equipment compatibility" in normalized_subject
+        retained_pair_subject = bool(re.search(r"compatib", normalized_subject)
+                                     and "indoor" in normalized_subject and "outdoor" in normalized_subject)
         matching_subject = any(
             phrase in normalized_subject
             for phrase in (
@@ -3458,10 +3488,50 @@ def primary_equipment_matching_assessment(
         )
         if (
             assessment.materiality == "PRIMARY"
-            and (canonical_matching_subject or (matching_subject and matching_details))
+            and (canonical_matching_subject or retained_pair_subject or (matching_subject and matching_details))
         ):
             return assessment
     return None
+
+
+def nominal_head_sum_only(value):
+    """A nominal-capacity observation is not an OEM combination limit."""
+    return bool(re.search(r"indoor", value, re.I) and re.search(r"outdoor", value, re.I)
+                and re.search(r"sum\w*|combined|total", value, re.I)
+                and re.search(r"nominal", value, re.I)
+                and not re.search(r"manufacturer|permitted|allowed|limit|prohibit|instructions|"
+                                  r"refrigerant|voltage|phase|controls?|communication|wiring", value, re.I))
+
+
+def normalize_mini_split_equipment_match(analysis, quote_text):
+    """Recover matching completeness without inferring manufacturer approval."""
+    if not mini_split_installation_scope(quote_text) or len(re.findall(r"(?m)^\s*QUOTE \d+", quote_text)) > 1:
+        return
+    item = primary_equipment_matching_assessment(analysis)
+    equipment = "proposed equipment" if new_mini_split_installation(quote_text) else "proposed and retained equipment"
+    if item is None:
+        item = TechnicalEvidenceAssessment(
+            subject="Quoted indoor/outdoor equipment compatibility", materiality="PRIMARY",
+            diagnostic_evidence_status="INCOMPLETE", scope_support="PARTIALLY_DEFINED",
+            documented_evidence=[], material_gaps=[], contradictions=[])
+        analysis.technical_assessments.append(item)
+    # A raw retained-equipment assessment and a recovered canonical assessment
+    # can coexist. Apply the same missing-information rule to both; retain each
+    # record's evidence and independent conflicts rather than letting an alias
+    # bypass normalization or merging distinct equipment concerns.
+    items = [a for a in analysis.technical_assessments if a is item or (
+        a.materiality == "PRIMARY" and re.search(r"compatib", a.subject, re.I)
+        and re.search(r"indoor", a.subject, re.I) and re.search(r"outdoor", a.subject, re.I))]
+    for item in items:
+        item.contradictions = [c for c in item.contradictions if not nominal_head_sum_only(c)]
+        if not item.contradictions and (
+            item.diagnostic_evidence_status not in {"ADEQUATE", "CONFIRMED"}
+            or item.material_gaps or not item.documented_evidence
+            or all(nominal_head_sum_only(e) for e in item.documented_evidence)
+        ):
+            item.diagnostic_evidence_status, item.scope_support = "INCOMPLETE", "PARTIALLY_DEFINED"
+            if not item.material_gaps or all(g.startswith("The submitted information does not establish an approved combination") for g in item.material_gaps):
+                item.material_gaps = [f"The submitted information does not establish an approved combination for the {equipment}."]
 
 
 def equipment_match_paperwork_contradiction(analysis: HVACAnalysis) -> bool:
@@ -3578,6 +3648,41 @@ def normalize_incomplete_equipment_matching_customer_fields(
         or assessment.scope_support != "PARTIALLY_DEFINED"
         or assessment.contradictions
     ):
+        return
+
+    if mini_split_installation_scope(quote_text):
+        if any(a.contradictions for a in analysis.technical_assessments
+               if assessment_owner(a.subject) == "equipment matching"):
+            return  # Missing paperwork on one pair cannot erase another pair's conflict.
+        # Exact models may already be supplied. Do not turn missing approval
+        # documentation into an assertion that those identities are absent.
+        equipment = "proposed mini-split equipment" + ("" if new_mini_split_installation(quote_text) else " and any retained components")
+        summary = f"The submitted information does not yet verify an approved combination for the {equipment}."
+        def matching_only(value):
+            return bool(re.search(r"match|ahri|compatib|equipment combination|model numbers|(?:indoor|outdoor|equipment) models?|"
+                                  r"manufacturer combination|approved combination", value, re.I)) and not re.search(
+                r"line[- ]?set|piping|pipe size|drain|condensate|supply circuit|field wiring", value, re.I)
+        for name in ("equipment_analysis", "missing_information", "installation_concerns"):
+            sentences = re.split(r"(?<=[.!?])\s+", getattr(analysis, name))
+            retained = [s for s in sentences if not matching_only(s)
+                        and not re.match(r"No (?:important|material).*missing", s, re.I)]
+            setattr(analysis, name, " ".join(dict.fromkeys([summary, *retained])))
+        analysis.red_flags = [f for f in analysis.red_flags if not matching_only(f)]
+        analysis.good_signs = [s for s in analysis.good_signs if not matching_only(s)]
+        analysis.contractor_questions = [q for q in analysis.contractor_questions if not matching_only(q)]
+        question = "Can you provide the manufacturer combination documentation for the proposed indoor and outdoor models"
+        if new_mini_split_installation(quote_text):
+            question += ", including applicable connected-zone and capacity limits"
+        elif re.search(r"multi[- ]zone|additional.*head", quote_text, re.I):
+            question += ", including retained equipment and connected-zone limits"
+        else:
+            question += ", including retained equipment and electrical/communication compatibility"
+        analysis.contractor_questions.insert(0, question + "?")
+        if new_mini_split_installation(quote_text) and re.search(
+            r"\b(?:no|missing)\s+(?:(?:manufacturer|make)\s+(?:or|and)\s+)?(?:exact\s+)?models?(?:\s+(?:numbers?|identities))?\b|"
+            r"\bmodel (?:numbers|identities)\s+(?:(?:are|were)\s+)?(?:missing|not provided|not supplied)", quote_text, re.I
+        ):
+            analysis.contractor_questions.insert(0, "What manufacturer and exact outdoor and indoor model numbers are proposed for each zone?")
         return
 
     normalized_quote = " ".join(str(quote_text or "").lower().split())
@@ -4998,6 +5103,8 @@ def deterministic_pricing_question(
 ) -> str:
     if quote_count and quote_count > 1:
         return MULTI_QUOTE_PRICING_QUESTION
+    if missing_mini_split_price(analysis, quote_text):
+        return "Can you provide the total project price and an itemized breakdown of equipment, labor, materials, permits, and other major charges?"
 
     replacement_total = ""
     if replacement_basis_assessment(analysis) or has_primary_equipment_matching_assessment(analysis):
@@ -5259,6 +5366,49 @@ def unsupported_other_component_question(question: str, quote_text: str) -> bool
     return True
 
 
+def missing_mini_split_price(analysis, quote_text):
+    """No submitted price is different from a supplied but unitemized total."""
+    return bool(mini_split_installation_scope(quote_text)
+                and analysis.decision.pricing_transparency == "ABSENT"
+                and not re.search(r"[$£€]\s*\d", quote_text))
+
+
+def compose_new_installation_summary(analysis: HVACAnalysis, *, retrofit=False, missing_price=False) -> None:
+    """Describe the existing decision in installation terms; never decide support."""
+    decision = analysis.decision
+    if decision.verdict == "GET_A_SECOND_OPINION":
+        explanation = "The submitted evidence identifies a material concern with the proposed installation."
+        action = "Get another opinion on that concern before approving the installation."
+    elif decision.technical_support == "PARTIALLY_SUPPORTED":
+        explanation = ("The proposed retrofit needs additional technical documentation before approval." if retrofit else
+                       "The new installation needs additional technical documentation before approval.")
+        action = "Have the contractor resolve the equipment, sizing or installation questions identified in this review."
+    else:
+        explanation = "The submitted evidence supports the proposed installation."
+        action = ("Clarify the remaining approval items before proceeding." if decision.required_actions
+                  else "No material technical approval items remain in the submitted information.")
+    analysis.banner_explanation = explanation
+    analysis.homeowner_takeaway = explanation + " " + action
+    analysis.bottom_line = action
+    if decision.pricing_transparency in {"LIMITED", "ABSENT"}:
+        analysis.homeowner_takeaway += (" Separately, request the total project price and its breakdown." if missing_price else
+                                       " Separately, request an itemized breakdown of the quoted total.")
+        analysis.bottom_line += (" Request the total price and its breakdown before approval." if missing_price else
+                                " Request the itemized price before approval.")
+    analysis.recommendation = verdict_display_name(decision.verdict) + " — " + analysis.homeowner_takeaway
+
+
+def cold_capacity_documentation_question(question: str) -> bool:
+    """Generic design-output paperwork, not a separate zone or documented defect."""
+    text = re.sub(r"[-_\s]+", " ", question.lower())
+    if re.search(r"\d|\b(?:separate|another|other|zones?|rooms?|defrost|shortfall|conflict|damage|"
+                 r"fault|failed|wiring|electrical|drainage|insufficient|deficit)\b", text):
+        return False
+    return bool(re.search(r"low (?:outdoor )?temperature|cold weather|winter design", text)
+                and re.search(r"heating (?:capacity|output)", text)
+                and re.search(r"document\w*|data|information|ratings?", text))
+
+
 def build_contractor_questions(
     analysis: HVACAnalysis,
     quote_count: Optional[int] = None,
@@ -5270,8 +5420,18 @@ def build_contractor_questions(
         return priority_questions
     questions_by_category = {}
     seen = set()
+    new_installation = new_mini_split_installation(quote_text)
+    mini_installation = mini_split_installation_scope(quote_text)
+    candidates = assemble_electrical_questions(analysis, analysis.contractor_questions)
+    if new_installation:
+        # The combined design-output/backup-heat request covers generic cold-
+        # weather documentation questions even when their categories differ.
+        combined = next((q for q in candidates if cold_capacity_documentation_question(q)
+                         and re.search(r"supplemental|backup", q, re.I)), None)
+        if combined:
+            candidates = [q for q in candidates if q == combined or not cold_capacity_documentation_question(q)]
 
-    for raw_question in assemble_electrical_questions(analysis, analysis.contractor_questions):
+    for raw_question in candidates:
         question = " ".join(str(raw_question or "").split())
         if not question:
             continue
@@ -5283,6 +5443,13 @@ def build_contractor_questions(
             continue
         seen.add(normalized)
         category = contractor_question_category(question)
+        if mini_installation and category != "pricing":
+            if re.search(r"manufacturer.*combination|approved combination", question, re.I):
+                category = "equipment_match_documentation"
+            elif re.search(r"\bmodel (?:numbers|identities)\b", question, re.I):
+                category = "equipment_model"
+            elif re.search(r"line[- ]?set|existing piping", question, re.I):
+                category = "installation_reuse"
         if category != "pricing" and unsupported_other_component_question(question, quote_text):
             continue
         if supported_capacitor_unresolved_compressor(analysis) and category in {"verification", "commissioning"}:
@@ -5378,6 +5545,7 @@ def build_contractor_questions(
         "refrigerant_repair_scope": 2,
         "refrigerant_verification": 8,
         "commissioning": 2,
+        "installation_reuse": 3,
         "duct_airflow": 2,
         "diagnostic_evidence": 0,
         "cause_or_leak_investigation": 1,
@@ -5392,6 +5560,21 @@ def build_contractor_questions(
         "verification": 8,
         "warranty": 9,
     }
+    if new_installation:
+        # Keep independent concerns ahead of ordinary paperwork, then collect
+        # identities before match, load, heating-output and closeout questions.
+        priority.update(repair_scope=0, compatibility=0, equipment_model=1,
+                        equipment_match_documentation=2, system_sizing=3,
+                        system_sizing_backup=4, commissioning=5)
+        for items, category in ((commissioning_items(analysis), "commissioning"),
+                                (sizing_assessments(analysis), "system_sizing")):
+            if any(a.contradictions or a.scope_support == "UNSUPPORTED" for a in items):
+                priority[category] = 0
+    elif mini_installation:
+        priority.update(repair_scope=0, equipment_match_documentation=1, installation_reuse=2,
+                        system_sizing=3, system_sizing_backup=3, commissioning=4)
+        if "replacement basis" in analysis.analysis_integrity.coverage_gaps:
+            priority["replacement_basis"] = 5  # Same position as the final integrity question.
     categorized_questions = sorted(
         questions_by_category.items(),
         key=lambda item: (-1 if item[0] == "compressor_evidence" and supported_capacitor_unresolved_compressor(analysis)
@@ -5776,6 +5959,20 @@ def normalize_system_sizing_customer_fields(analysis: HVACAnalysis, quote_text: 
                                           if not sizing_text(action)]
     if question:
         analysis.decision.required_actions.append("Clarify the proposed system size using the building-specific sizing information before approval.")
+    if new_mini_split_installation(quote_text) and question and not sizing_conflict:
+        analysis.contractor_questions = [q for q in analysis.contractor_questions
+            if contractor_question_category(q) not in {"system_sizing", "system_sizing_backup"}
+            and not re.search(r"how.*(?:proposed capacities|capacities.*selected)", q, re.I)]
+        analysis.contractor_questions.insert(0,
+            "Can you provide the room-by-room heating and cooling loads and explain how they support the selected zone and outdoor capacities?")
+        heating_gaps = " ".join(gap for item in items for gap in item.material_gaps)
+        missing_heat = re.search(r"(?:no|missing|not documented|not provided).{0,70}"
+            r"(?:low.outdoor.temperature|cold.weather|winter|supplemental|heating (?:output|capacity))", quote_text, re.I)
+        if missing_heat or re.search(r"cold.weather|low.outdoor.temperature|supplemental|heating output", heating_gaps, re.I):
+            concern = "Heating output at the winter design conditions and any needed supplemental heat remain undocumented."
+            analysis.missing_information = analysis.missing_information.replace(concern, "").strip() + " " + concern
+            analysis.contractor_questions.insert(1,
+                "What manufacturer heating capacity data at the winter design conditions supports the heating load, and is supplemental heat needed?")
 
 
 def compose_system_sizing_summary(analysis: HVACAnalysis, quote_text: str) -> None:
@@ -5907,6 +6104,18 @@ def factual_review_summary(quote_text: str) -> str:
     return summary + "."
 
 
+def normalize_missing_information_formatting(value: str) -> str:
+    """Remove sequential list labels before sentence filters can orphan them."""
+    marker = re.compile(r"(?<!\S)(\d{1,2})\.(?=\s|$)")
+    matches = list(marker.finditer(value))
+    if len(matches) < 2 or [int(m[1]) for m in matches] != list(range(1, len(matches) + 1)):
+        return value
+    prefix = value[:matches[0].start()]
+    if prefix.strip() and not prefix.rstrip().endswith(":") and not re.search(r"(?:^|\n)[ \t]*$", prefix):
+        return value
+    return " ".join(marker.sub("", value).split())
+
+
 def finalize_customer_analysis(
     analysis: HVACAnalysis,
     quote_text: str = "",
@@ -5917,7 +6126,17 @@ def finalize_customer_analysis(
 ) -> HVACAnalysis:
     """Return the single canonical customer-facing analysis without mutating input."""
     finalized = analysis.model_copy(deep=True)
+    finalized.missing_information = normalize_missing_information_formatting(finalized.missing_information)
     classification = component_scoped_classification(classification, quote_text)
+    is_new_installation = new_mini_split_installation(quote_text)
+    finalized.support_heading = "Installation Support" if is_new_installation else "Diagnostic Support"
+    if is_new_installation:
+        finalized.technical_assessments = [a for a in finalized.technical_assessments
+            if assessment_owner(a.subject) != "replacement basis"]
+        finalized.replacement_context = ReplacementContext.UNKNOWN
+        finalized.contractor_questions = [q for q in finalized.contractor_questions if not replacement_basis_question(q)]
+        finalized.missing_information = re.sub(
+            r"This review could not fully validate the replacement basis work from the submitted evidence\.?", "", finalized.missing_information)
     if isolated_component_repair(quote_text):
         # Apply the same scope boundary to raw structured output before domain
         # normalization. Repair evidence and post-repair findings stay intact.
@@ -5949,6 +6168,7 @@ def finalize_customer_analysis(
     calibrate_partial_replacement_basis(finalized, quote_text)
     ensure_elective_replacement_basis_assessment(finalized, quote_text)
     calibrate_elective_incomplete_equipment_match(finalized, quote_text)
+    normalize_mini_split_equipment_match(finalized, quote_text)
 
     normalize_system_sizing_assessments(finalized, quote_text, classification)
     normalize_duct_assessments(finalized, quote_text, TechnicalEvidenceAssessment, classification)
@@ -6005,6 +6225,8 @@ def finalize_customer_analysis(
     normalize_refrigerant_customer_fields(finalized, quote_text)
     normalize_heat_exchanger_customer_fields(finalized)
     normalize_replacement_pricing_transparency(finalized, quote_text)
+    if missing_mini_split_price(finalized, quote_text):
+        finalized.pricing_review = "No total project price was supplied. Request the total and a breakdown of equipment, labor and other major charges before approval."
     deduplicate_equipment_matching_good_signs(finalized)
     normalize_incomplete_equipment_matching_customer_fields(finalized, quote_text)
     normalize_contradictory_equipment_matching_customer_fields(finalized)
@@ -6230,6 +6452,13 @@ def finalize_customer_analysis(
     compose_compressor_summary(finalized)
     compose_electrical_summary(finalized, quote_text)
     summarize_scope_only(finalized, source_work)
+    retrofit_without_diagnosis = (mini_split_installation_scope(quote_text)
+        and not is_new_installation and not finalized_replacement_basis
+        and material_work(quote_text, classification) <= {"replacement basis"})
+    if is_new_installation or retrofit_without_diagnosis:
+        finalized.support_heading = "Installation Support"
+        compose_new_installation_summary(finalized, retrofit=retrofit_without_diagnosis,
+                                         missing_price=missing_mini_split_price(finalized, quote_text))
     if partial_voltage_drop(finalized):
         for name in ("project_overview", "equipment_analysis", "missing_information", "installation_concerns",
                      "pricing_review", "recommendation", "banner_explanation", "homeowner_takeaway", "bottom_line"):
@@ -6264,11 +6493,22 @@ def finalize_customer_analysis(
         owners = finalized.analysis_integrity.coverage_gaps
         scope = "proposed work" if owners == ["proposed work"] else ", ".join(owners) + " work"
         explanation = f"This review could not fully validate the {scope} from the submitted evidence."
+        retrofit_basis_gap = retrofit_without_diagnosis and owners == ["replacement basis"]
+        if retrofit_basis_gap:
+            old_explanation = explanation
+            explanation = "The reason for replacing the existing outdoor equipment is not documented."
+            finalized.missing_information = finalized.missing_information.replace(old_explanation, explanation)
         if finalized.decision.verdict == "REVIEW_BEFORE_APPROVING":
-            finalized.banner_explanation = explanation
-            finalized.homeowner_takeaway = explanation + " Have the contractor clarify the supporting findings before approving that work."
-            finalized.bottom_line = "Have the supporting findings clarified before approving the work that this review could not fully validate."
-            finalized.recommendation = verdict_display_name(finalized.decision.verdict) + " — " + explanation
+            if retrofit_basis_gap:
+                finalized.banner_explanation = "The retrofit needs equipment, installation and replacement-basis clarification before approval."
+                finalized.homeowner_takeaway += " " + explanation
+                finalized.bottom_line += " Clarify the reason for replacement."
+                finalized.recommendation = verdict_display_name(finalized.decision.verdict) + " — " + finalized.homeowner_takeaway
+            else:
+                finalized.banner_explanation = explanation
+                finalized.homeowner_takeaway = explanation + " Have the contractor clarify the supporting findings before approving that work."
+                finalized.bottom_line = "Have the supporting findings clarified before approving the work that this review could not fully validate."
+                finalized.recommendation = verdict_display_name(finalized.decision.verdict) + " — " + explanation
         if not missing_information_for_report(finalized.missing_information):
             finalized.missing_information = explanation
         elif explanation not in finalized.missing_information:
@@ -6704,7 +6944,7 @@ ul {{
 
         <div class="verdict-grid">
             <div class="verdict-stat">
-                <strong>Diagnostic Support</strong>
+                <strong>{esc(analysis.support_heading)}</strong>
                 {esc(support_label)}
             </div>
 
@@ -6732,7 +6972,7 @@ ul {{
 
     {section("What This Means for You", plain_english, "plain-english")}
 
-    {section("Does the Diagnosis Make Sense?", equipment_analysis)}
+    {section("Does the Equipment Selection Make Sense?" if analysis.support_heading == "Installation Support" else "Does the Diagnosis Make Sense?", equipment_analysis)}
     {sizing_section}
     {duct_section}
     {startup_section}
@@ -6819,6 +7059,69 @@ def send_review_email(
         smtp.send_message(msg)
 
 
+ANALYSIS_MAX_COMPLETION_TOKENS = 16384  # gpt-4o-mini's output ceiling, not its context window.
+STRUCTURED_ANALYSIS_OUTPUT_RULES = """
+COMPLETE, CONCISE STRUCTURED OUTPUT
+Return one complete HVACAnalysis object with every schema-required key. Evaluate
+all applicable selected modules and all independent material work. Brevity must
+not remove evidence, gaps, contradictions, assessments or pricing transparency.
+Normally use 1-3 short sentences per narrative field and one concise fact per list
+entry. Put technical evidence in technical_assessments; customer sections should
+summarize the relevant findings rather than repeat every assessment in full.
+Consolidate equivalent entries only for the same issue, equipment and quote. Keep
+distinct systems, retained/replaced equipment, independent concerns and different
+quotes separate. There is no fixed limit on necessary technical assessments.
+Use short source excerpts preserving equipment identities, measurements, units,
+conditions and attribution. Do not copy the entire proposal, analysis instructions
+or long procedural checklists into response fields. Do not include a reasoning
+transcript. Use empty values only where the schema permits and the field is truly
+inapplicable, never to omit required analysis. Keep the complete JSON within the
+output budget by removing repeated wording, not by truncating or inventing facts.
+"""
+ANALYSIS_LENGTH_RETRY_RULES = """
+The previous generation reached the output length limit and was discarded.
+Generate a fresh, complete HVACAnalysis from the original submitted evidence and
+all the same technical rules. Do not continue an unfinished JSON response. Use
+one short sentence per narrative field where possible and compact evidence and
+gap entries. Remove repeated explanations across sections while retaining every
+independent material assessment, source fact, conflict and required schema key.
+"""
+
+
+def request_structured_analysis(messages) -> HVACAnalysis:
+    """Retry length exhaustion once; never finalize or expose an incomplete response."""
+    for attempt in range(2):
+        request_messages = [*messages, {"role": "system", "content": STRUCTURED_ANALYSIS_OUTPUT_RULES}]
+        if attempt:
+            request_messages.append({"role": "system", "content": ANALYSIS_LENGTH_RETRY_RULES})
+        try:
+            completion = client.beta.chat.completions.parse(
+                model="gpt-4o-mini",
+                messages=request_messages,
+                response_format=HVACAnalysis,
+                max_completion_tokens=ANALYSIS_MAX_COMPLETION_TOKENS,
+            )
+        except LengthFinishReasonError as exc:
+            usage = exc.completion.usage
+            logging.getLogger(__name__).warning(
+                "HVAC analysis output limit reached: attempt=%s/2 completion_tokens=%s",
+                attempt + 1, usage.completion_tokens if usage else None,
+            )
+            if attempt == 0:
+                continue
+            raise HTTPException(status_code=502, detail=(
+                "The review could not be completed because the analysis response was too long. "
+                "No report was generated. Please try again."
+            )) from None
+        parsed = completion.choices[0].message.parsed if completion.choices else None
+        if not isinstance(parsed, HVACAnalysis):
+            raise HTTPException(status_code=502, detail=(
+                "The review did not return a complete structured analysis. "
+                "No report was generated. Please try again."
+            ))
+        return parsed
+
+
 @app.post("/analyze", response_model=HVACAnalysis)
 async def analyze_hvac_quote(request: AnalyzeRequest):
     raw_package = (request.packageName or request.package or "tier1").lower().strip()
@@ -6893,8 +7196,7 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
     if package_key == "tier3":
      contractor_vetting_results = "Contractor vetting placeholder: online contractor search ..."
 
-    completion = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
+    raw_analysis = request_structured_analysis(
         messages=[
             {
                 "role": "system",
@@ -7049,10 +7351,8 @@ Submitted HVAC Quote(s):
                 """
             }
         ],
-        response_format=HVACAnalysis,
     )
 
-    raw_analysis = completion.choices[0].message.parsed
     analysis = finalize_customer_analysis(
         raw_analysis,
         quote_text=all_quotes_text,

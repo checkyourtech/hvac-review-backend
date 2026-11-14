@@ -2,7 +2,7 @@
 import re
 from decimal import Decimal
 from evidence_sufficiency import proposed_work_facts
-from evidence_integrity import COMPONENT_REPAIR_PATTERN, component_repair_work
+from evidence_integrity import COMPONENT_REPAIR_PATTERN, component_repair_work, work_scope_clauses, SourceEvidence
 
 SIZING_SUBJECT = "Capacity justification for proposed HVAC system"
 
@@ -103,7 +103,7 @@ def sizing_text(value):
         r"\b(?:system siz\w*|size selection|proposed (?:size|tonnage)|tonnage|"
         r"hvac capacity|heat pump sizing|furnace capacity|equipment capacity|equipment size for (?:the )?(?:home|house|building)|"
         r"capacity (?:justification|selection|change|for|is|differs)|load based|"
-        r"manual j|load (?:calculation|summary|review|information|results?|selection)|"
+        r"manual j|load (?:assessment|calculation|summary|review|information|results?|selection)|"
         r"(?:heating|cooling|building|zone) loads?|sizing|oversized|undersized|"
         r"same (?:nominal )?size|(?:properly|correctly) sized|(?:wrong|right|correct|selected) size|size of the (?:new )?system|system capacity)\b", text
     ))
@@ -188,6 +188,27 @@ def source_requires_sizing(quote_text):
     return False
 
 
+def mini_split_installation_scope(text):
+    """Affirmative major-equipment work, not a component or a capacity mention."""
+    if not re.search(r"mini[- ]split|multi[- ]split|ductless|multi[- ]zone", text, re.I):
+        return False
+    return any(re.search(r"install|replac|retrofit", clause, re.I)
+               and source_requires_sizing(clause) for clause in work_scope_clauses(text))
+
+
+def new_mini_split_installation(text):
+    """An entirely new system, excluding replacements, retained systems and repairs."""
+    if not mini_split_installation_scope(text) or len(re.findall(r"(?m)^\s*QUOTE \d+", text)) > 1:
+        return False
+    affirmative = [c for c in work_scope_clauses("\n".join(SourceEvidence(text).lines))
+                   if not re.search(r"\b(?:no|not|declined|without)\b", c, re.I)]
+    if any(re.search(r"\breplac\w*|\brepair\w*|\bretrofit|\bretain\w*|\breus\w*.*existing", c, re.I)
+           for c in affirmative):
+        return False
+    return any(re.search(r"\binstall\w*\s+(?:of\s+)?(?:a\s+|the\s+)?new\b|"
+                         r"\bnew\b.{0,70}\binstallation\b", c, re.I) for c in affirmative)
+
+
 def normalize_capacity(value, unit, *, mode=None, rating=None, basis=None,
                        project=None, system=None, zone=None, design_conditions=None,
                        hvac_heat_rate=False):
@@ -267,8 +288,11 @@ def usable_load_basis(evidence):
     nominal_heat_pump_only = ("heat pump" in positive and "heating load" in positive
                               and "nominal" in positive
                               and not re.search(r"\b(?:design|supplemental|backup|dual fuel|heating output)\b", positive))
+    nominal_mini_split_only = (re.search(r"mini[- ]split|ductless", positive) and "heating load" in positive
+                              and "nominal" in positive
+                              and not re.search(r"\b(?:supplemental|backup|dual fuel|heating output)\b", positive))
     return bool(load and re.search(load_role, positive) and capacity and linkage and len(rates) >= 2
-                and not inferred and not furnace_input_only and not nominal_heat_pump_only)
+                and not inferred and not furnace_input_only and not nominal_heat_pump_only and not nominal_mini_split_only)
 
 
 # Display values are taken from explicit submitted text, never decoded from models.

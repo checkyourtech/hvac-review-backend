@@ -86,7 +86,7 @@ def assessment_owner(subject):
     for name, pattern in (
         ("replacement basis", r"replacement basis|basis for|repair.vs|replacement decision|reason for replacement"),
         ("equipment matching", r"equipment match|matched|compatib|ahri"),
-        ("system sizing", r"sizing|size selection|system capacity|capacity (?:basis|selection|justification)|load.based|load calculation|size for the home|tonnage"),
+        ("system sizing", r"sizing|size selection|system capacity|capacity (?:basis|selection|justification)|load.based|load (?:calculation|assessment)|size for the home|tonnage"),
         ("duct airflow", r"duct|airflow|air distribution|static pressure"),
         ("commissioning", r"commission|startup|start.up|verification"),
     ):
@@ -385,7 +385,10 @@ def material_work(text, classification=None):
                     re.search(r"capacitor|motor|board|contactor|transformer|igniter|sensor|switch", s, re.I)
                     for s in _sentences(text) if re.search(r"replace|replacement|install", s, re.I)):
                 owners.add("replacement basis")
-    if re.search(r"low (?:refrigerant|charge)|refrigerant (?:leak|loss)|recharge|add.{0,15}refrigerant", text, re.I):
+    # Installation charge allowances do not imply an independent repair owner.
+    # Use the refrigerant owner's scope boundary; evidence grounding is unchanged.
+    from refrigerant_system import refrigerant_diagnostic_scope
+    if re.search(r"low (?:refrigerant|charge)|refrigerant (?:leak|loss)|recharge|add.{0,15}refrigerant", refrigerant_diagnostic_scope(text), re.I):
         owners.add("refrigerant")
     # A classifier label or diagnostic reference is not independent capacitor
     # work. Use the electrical owner's scope/failure boundary for both coverage
@@ -397,6 +400,9 @@ def material_work(text, classification=None):
             owners.add("capacitor")
         else:
             owners.discard("capacitor")
+    from system_sizing import new_mini_split_installation
+    if new_mini_split_installation(text):
+        owners.discard("replacement basis")
     return owners
 
 

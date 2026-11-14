@@ -1,0 +1,140 @@
+{
+  "project_overview": "The proposal is for replacing the outdoor unit of an existing single-zone ductless mini-split system in Reno, Nevada.",
+  "equipment_analysis": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. The proposal includes a new inverter-driven outdoor heat pump with a nominal capacity of 18,000 BTU/h, but lacks specific documentation on compatibility with the existing indoor unit and refrigerant line set.",
+  "missing_information": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. The quote does not include the home's calculated heating and cooling loads. Installation plan: The startup checks and documentation are not clearly described; The basis for existing line-set reuse, including applicable pipe sizes and refrigerant suitability, is not documented. This review could not fully validate the replacement basis work from the submitted evidence.",
+  "pricing_review": "The total price is not detailed, and the proposal does not separate major cost components. Itemized pricing for equipment or labor is absent, making it challenging to assess cost transparency.",
+  "installation_concerns": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment and any retained components. The scope includes removing the existing outdoor unit and installing the new outdoor heat pump, but important procedural details like pressure testing and evacuation are missing, which could affect final operation verification.",
+  "quote_comparison": "",
+  "best_quote_recommendation": "",
+  "contractor_vetting": "",
+  "red_flags": [
+    "Absence of pressure testing and evacuation procedures, which are critical for system integrity."
+  ],
+  "good_signs": [],
+  "contractor_questions": [
+    "What refrigerant type is used in the existing system, and how will it be handled during the replacement?",
+    "Could you clarify the pressure-testing and evacuation procedures that will be followed in this installation?",
+    "How will the installation and commissioning plan address these provisions: The startup checks and documentation are not clearly described; The basis for existing line-set reuse, including applicable pipe sizes and refrigerant suitability, is not documented?",
+    "Can you provide the load summary and explain how it supports this system size?",
+    "Can you provide the manufacturer combination documentation for the proposed indoor and outdoor models, including retained equipment and connected-zone limits?",
+    "Can you provide an itemized breakdown of the parts/equipment, labor, materials, permits, and other major charges included in the quoted total?"
+  ],
+  "recommendation": "GET A SECOND OPINION — The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. The quote shows what size system they're selling you, but not how they arrived at it. Get the sizing results before approving the equipment.",
+  "decision": {
+    "verdict": "GET_A_SECOND_OPINION",
+    "technical_support": "UNSUPPORTED",
+    "pricing_transparency": "ABSENT",
+    "required_actions": [
+      "Request explicit model numbers and compatibility documentation for the new outdoor heat pump and existing indoor unit.",
+      "Ask for specified refrigerant type and handling procedures during replacement.",
+      "Require detailed pressure-testing and evacuation protocols to ensure system integrity after installation.",
+      "Request itemized labor and equipment costs for a clearer understanding of quoted pricing.",
+      "Clarify the proposed system size using the building-specific sizing information before approval.",
+      "Clarify the documented installation and commissioning provisions before approval."
+    ],
+    "optional_suggestions": [],
+    "verdict_reasons": [
+      "Insufficient evidence provided to confirm compatibility between the new outdoor unit and the existing indoor unit.",
+      "Missing critical procedural information regarding installation and verification of the system.",
+      "Installation plan: The startup checks and documentation are not clearly described; The basis for existing line-set reuse, including applicable pipe sizes and refrigerant suitability, is not documented."
+    ]
+  },
+  "price_facts": [],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Compatibility of proposed outdoor heat pump with existing indoor unit",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "ABSENT",
+      "scope_support": "UNSUPPORTED",
+      "documented_evidence": [
+        "Proposed equipment: New inverter-driven outdoor heat pump.",
+        "Existing refrigerant line set will be reused."
+      ],
+      "material_gaps": [
+        "Manufacturer compatibility documentation for the retained indoor unit is not provided."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Scope of Installation for replacement",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Remove existing outdoor unit.",
+        "Install replacement outdoor heat pump.",
+        "Reconnect existing refrigerant piping.",
+        "Reconnect electrical and communication wiring.",
+        "Verify system operation after installation."
+      ],
+      "material_gaps": [
+        "Pressure-testing and evacuation procedures are not detailed.",
+        "No documented commissioning test results."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Quoted indoor/outdoor equipment compatibility",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "The submitted information does not establish an approved combination for the proposed and retained equipment."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Capacity justification for proposed HVAC system",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Submitted sizing source:\nProject:\nReplace the outdoor unit of an existing\nsingle-zone ductless mini-split system\nin Reno, Nevada.\n\nProposed equipment:\nNew inverter-driven outdoor heat pump.\nNominal capacity: 18,000 BTU/h.\n\nNo heating or cooling load calculation provided."
+      ],
+      "material_gaps": [
+        "The submitted information does not establish the capacity basis for the served space."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Startup and commissioning plan for proposed equipment",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Verify system operation after installation.",
+        "No documented commissioning test results.",
+        "Existing refrigerant line set will be reused."
+      ],
+      "material_gaps": [
+        "The startup checks and documentation are not clearly described.",
+        "The basis for existing line-set reuse, including applicable pipe sizes and refrigerant suitability, is not documented."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The quote does not show enough evidence to support this diagnosis or repair. The system size still needs clarification before approval.",
+  "homeowner_takeaway": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. Pricing detail is also limited, but this is the main concern. The system size needs a closer look before approval.",
+  "bottom_line": "The quote does not show enough evidence to support the main diagnosis or repair. Get another opinion before moving forward. The quote shows what size system they're selling you, but not how they arrived at it. Get the sizing results before approving the equipment.",
+  "support_heading": "Diagnostic Support",
+  "analysis_integrity": {
+    "status": "INCOMPLETE",
+    "coverage_gaps": [
+      "replacement basis"
+    ]
+  },
+  "repair_evidence_sections": []
+}

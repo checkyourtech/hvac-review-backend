@@ -8,6 +8,7 @@ from dataclasses import replace
 from evidence_sufficiency import proposed_work_facts
 from evidence_integrity import METERING_REPAIR_ALIAS, component_repair_work, material_work, repair_owners, assessment_owner
 from repair_diagnostics import RepairEvidenceDefinition, review_repair_evidence
+from system_sizing import mini_split_installation_scope
 
 CONDITION = "Refrigerant condition supporting proposed work"
 CAUSE = "Leak / refrigerant-loss cause"
@@ -166,7 +167,19 @@ def refrigerant_items(analysis):
     return [a for a in analysis.technical_assessments if a.materiality != "MINOR" and subject_kind(a.subject)]
 
 
+def refrigerant_diagnostic_scope(text):
+    """A new-install line-length charge allowance is not a low-charge diagnosis."""
+    if not mini_split_installation_scope(text):
+        return text
+    from evidence_integrity import work_scope_clauses
+    return "\n".join(clause for clause in work_scope_clauses(text) if not (
+        re.search(r"add\w*\b.{0,25}refrigerant", clause, re.I)
+        and re.search(r"manufacturer|line[- ]?(?:set )?length", clause, re.I)
+        and not re.search(r"low|leak|repair|diagnos|measur|fault|failed|recharge", clause, re.I)))
+
+
 def refrigerant_required(text, classification=None):
+    text = refrigerant_diagnostic_scope(text)
     if "metering device" in component_repair_work(text):
         return True
     return bool(re.search(

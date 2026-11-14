@@ -1,0 +1,126 @@
+{
+  "project_overview": "The proposal outlines the installation of a new three-zone ductless mini-split heat pump system in Reno, NV. It includes one outdoor unit and three indoor wall units to service different zones in the home.",
+  "equipment_analysis": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment. The proposed equipment includes a single outdoor heat pump with a nominal capacity of 24,000 BTU/h and three indoor units with a combined nominal capacity of 30,000 BTU/h. This raises concerns about whether the system components are designed to work together effectively. There's a lack of documentation for room load calculations, which means we can't confirm that the selected units are appropriately sized for heating and cooling needs, particularly in low outdoor temperatures.",
+  "missing_information": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment. The proposal lacks several critical pieces of information, including: 1. 2. 3. Documentation for connected-zone capacity. 4. Individual room load calculations to determine adequacy. 5. Low-outdoor-temperature heating capacity data. 6. Assessment of any supplemental heating requirements. 7. Itemized breakdown of equipment or labor costs. The quote does not include the home's calculated heating and cooling loads. Heating output at the winter design conditions and any needed supplemental heat remain undocumented. The proposal includes operational verification but does not identify the startup results or records to be provided.",
+  "pricing_review": "The total quoted price is $13,500, which is presented as a lump sum. However, there is no breakdown of the individual costs associated with equipment, labor, or specific installation tasks, making it difficult to assess transparency in pricing.",
+  "installation_concerns": "The submitted information does not yet verify an approved combination for the proposed mini-split equipment. The installation scope includes necessary tasks like refrigerant line set installation, condensate drainage, electrical connections, pressure testing, system evacuation, and operational verification.",
+  "quote_comparison": "",
+  "best_quote_recommendation": "",
+  "contractor_vetting": "",
+  "red_flags": [
+    "No low-outdoor-temperature heating capacity data could impact winter operation.",
+    "Absence of a supplemental heating assessment fails to identify potential shortfalls in heating."
+  ],
+  "good_signs": [
+    "The proposal includes pressure testing, evacuation, operational verification."
+  ],
+  "contractor_questions": [
+    "Is there documented low-outdoor-temperature heating capacity information for this system?",
+    "Can you provide the manufacturer combination documentation for the proposed indoor and outdoor models, including applicable connected-zone and capacity limits?",
+    "Can you provide the room-by-room heating and cooling loads and explain how they support the selected zone and outdoor capacities?",
+    "What manufacturer heating capacity data at the winter design conditions supports the heating load, and is supplemental heat needed?",
+    "What startup results will be documented and provided after installation?",
+    "Can you provide an itemized breakdown of the parts, labor, and other charges included in the $13,500 total?"
+  ],
+  "recommendation": "REVIEW BEFORE APPROVING — The new installation needs additional technical documentation before approval. Have the contractor resolve the equipment, sizing or installation questions identified in this review. Separately, request an itemized breakdown of the quoted total.",
+  "decision": {
+    "verdict": "REVIEW_BEFORE_APPROVING",
+    "technical_support": "PARTIALLY_SUPPORTED",
+    "pricing_transparency": "LIMITED",
+    "required_actions": [
+      "Request detailed equipment manufacturers and models.",
+      "Obtain the manufacturer-approved combination documentation.",
+      "Ask for individual room load calculations to determine adequacy.",
+      "Request low-outdoor-temperature heating capacity data.",
+      "Inquire about any assessment for supplemental heating requirements.",
+      "Clarify the proposed system size using the building-specific sizing information before approval.",
+      "Confirm which startup results or records will be provided after installation.",
+      "Request an itemized breakdown of parts/equipment, labor, materials, permits, and other major charges before approving the work."
+    ],
+    "optional_suggestions": [
+      "Consider asking for a second opinion to compare the proposal with other contractors."
+    ],
+    "verdict_reasons": [
+      "Critical information is missing that affects the reliability of the installation.",
+      "Lack of pricing transparency makes it difficult to assess value.",
+      "The proposal includes operational verification but does not identify the startup results or records to be provided."
+    ]
+  },
+  "price_facts": [
+    {
+      "quote_index": 1,
+      "items": [
+        {
+          "category": "labor",
+          "label": "lump sum, equipment and labor included.",
+          "amount": 13500.0,
+          "currency": "USD",
+          "source_text": "$13,500 lump sum, equipment and labor included."
+        }
+      ]
+    }
+  ],
+  "market_price_context": {
+    "status": "not_evaluated",
+    "project_zip": null,
+    "market_area": "Reno, NV",
+    "expected_low": null,
+    "expected_high": null,
+    "currency": "USD",
+    "data_source": null,
+    "source_date": null,
+    "confidence": null
+  },
+  "replacement_context": "unknown",
+  "technical_assessments": [
+    {
+      "subject": "Quoted indoor/outdoor equipment compatibility",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [],
+      "material_gaps": [
+        "The submitted information does not establish an approved combination for the proposed equipment."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Capacity justification for proposed HVAC system",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Submitted sizing source:\nProject:\nInstall a new three-zone ductless mini-split\nheat pump in an existing residence in Reno, NV.\n\nProposed equipment:\nOne outdoor heat pump, nominal 24,000 BTU/h.\nTwo indoor wall units, nominal 9,000 BTU/h each.\nOne indoor wall unit, nominal 12,000 BTU/h.\n\nCombined indoor nominal capacity: 30,000 BTU/h.\nOutdoor nominal capacity: 24,000 BTU/h."
+      ],
+      "material_gaps": [
+        "The submitted information does not establish the capacity basis for the served space."
+      ],
+      "contradictions": []
+    },
+    {
+      "subject": "Startup and commissioning plan for proposed equipment",
+      "materiality": "PRIMARY",
+      "diagnostic_evidence_status": "INCOMPLETE",
+      "scope_support": "PARTIALLY_DEFINED",
+      "documented_evidence": [
+        "Refrigerant piping pressure test.",
+        "System evacuation.",
+        "Startup and operational verification.",
+        "Contractor will verify system operation"
+      ],
+      "material_gaps": [
+        "The proposal includes operational verification but does not identify the startup results or records to be provided."
+      ],
+      "contradictions": []
+    }
+  ],
+  "banner_explanation": "The new installation needs additional technical documentation before approval.",
+  "homeowner_takeaway": "The new installation needs additional technical documentation before approval. Have the contractor resolve the equipment, sizing or installation questions identified in this review. Separately, request an itemized breakdown of the quoted total.",
+  "bottom_line": "Have the contractor resolve the equipment, sizing or installation questions identified in this review. Request the itemized price before approval.",
+  "support_heading": "Installation Support",
+  "analysis_integrity": {
+    "status": "COMPLETE",
+    "coverage_gaps": []
+  },
+  "repair_evidence_sections": []
+}
