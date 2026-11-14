@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 import main
 import electrical_controls as ec
 from evidence_integrity import SourceEvidence, ground_assessments, material_work, recovery_modules

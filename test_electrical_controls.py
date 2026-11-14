@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 import main
 import electrical_controls as ec
 from compressor import compressor_items, compressor_paragraphs, finalize_compressor_fields

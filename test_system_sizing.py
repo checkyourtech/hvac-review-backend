@@ -723,7 +723,7 @@ class SizingGoodAcceptanceRegressionTests(SizingOnlyTests):
 
     def test_upload_pipeline_with_mocked_ai_preserves_supported_paraphrase(self):
         import tempfile
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = self.raw()
         c = main.QuoteClassification(quote_type="replacement", system_type="AC and furnace",
             primary_scope="Complete HVAC system replacement", replacement_components=["furnace", "outdoor unit"],

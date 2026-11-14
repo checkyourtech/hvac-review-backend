@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 import main
 from compressor import compressor_items
 from evidence_sufficiency import proposed_work_facts, ensure_primary_evidence_assessment

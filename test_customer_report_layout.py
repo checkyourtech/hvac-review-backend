@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 import main
 from test_blower_live_response import saved_response
 from test_blower_support_normalization import BAD, classified, finalize

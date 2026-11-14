@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import main
+from offline_test_client import offline_purchase
 from pricing import (
     MarketPriceContext, MarketPriceStatus, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text,
@@ -143,8 +144,8 @@ Installation materials: $200'''
         )
         with patch.object(main, 'classify_quotes', return_value=classification), \
              patch.object(main.client.beta.chat.completions, 'parse', return_value=response), \
-             patch.object(main, 'send_review_email') as email:
-            final = asyncio.run(main.analyze_hvac_quote(request))
+             patch.object(main, 'send_review_email') as email, offline_purchase() as authorization:
+            final = asyncio.run(main.analyze_hvac_quote(request, authorization))
         self.assertIs(email.call_args.kwargs['analysis'], final)
         self.assertEqual(final.market_price_context.project_zip, '01234')
         self.assertEqual(final.market_price_context.market_area, 'Example City, MA')

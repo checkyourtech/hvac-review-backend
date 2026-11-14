@@ -12,13 +12,14 @@ from email.message import EmailMessage
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form 
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pathlib import Path
 import uuid
 from openai import OpenAI, LengthFinishReasonError
 from pydantic import BaseModel, Field
+from purchase_security import AuthorizedPurchase, require_purchase
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
@@ -244,7 +245,7 @@ class UploadedQuote(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     package: Optional[str] = Field(default=None, alias="package")
-    packageName: Optional[str] = "tier1"
+    packageName: Optional[str] = None
     customer_name: Optional[str] = None
     customerName: Optional[str] = "Website Customer"
     customer_email: Optional[str] = None
@@ -7123,39 +7124,16 @@ def request_structured_analysis(messages) -> HVACAnalysis:
 
 
 @app.post("/analyze", response_model=HVACAnalysis)
-async def analyze_hvac_quote(request: AnalyzeRequest):
-    raw_package = (request.packageName or request.package or "tier1").lower().strip()
-
-    package_map = {
-        "basic": "tier1",
-        "standard": "tier2",
-        "premium": "tier3",
-        "tier1": "tier1",
-        "tier2": "tier2",
-        "tier3": "tier3",
-    }
-
-    package_key = package_map.get(raw_package, raw_package)
+async def analyze_hvac_quote(
+    request: AnalyzeRequest,
+    authorization: AuthorizedPurchase = Depends(require_purchase),
+):
+    if not isinstance(authorization, AuthorizedPurchase):
+        raise HTTPException(status_code=401, detail="Verified purchase authorization is required.")
+    package_key = authorization.validate_submission(
+        len(request.files), request.package, request.packageName)
     customer_name = request.customerName or request.customer_name or "Website Customer"
     customer_email = request.customerEmail or request.customer_email or ""
-
-    if package_key not in {"tier1", "tier2", "tier3"}:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid package."
-        )
-
-    if package_key == "tier1" and len(request.files) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Basic Review allows 1 quote upload."
-        )
-
-    if package_key in {"tier2", "tier3"} and len(request.files) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="Standard and Premium allow up to 3 quote uploads."
-        )
 
     quote_blocks = []
     file_names = []
@@ -7172,6 +7150,9 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
         else:
             raise HTTPException(status_code=400, detail="Missing quote text or downloadUrl.")
 
+        if not quote_text.strip():
+            raise HTTPException(status_code=400, detail="The proposal contains no readable quote text.")
+
         file_names.append(file_name)
 
         quote_blocks.append(
@@ -7185,6 +7166,8 @@ async def analyze_hvac_quote(request: AnalyzeRequest):
 
     all_quotes_text = "\n\n".join(quote_blocks)
 
+    # Atomic usage reservation follows initial validation and precedes paid work.
+    authorization.consume()
     classification = classify_quotes(all_quotes_text)
     print("QUOTE CLASSIFICATION:", classification.model_dump())
 
@@ -7208,6 +7191,9 @@ Review residential HVAC proposals, estimates, and repair quotes like a homeowner
 Write like a real foreman talking to a homeowner, not like AI, a lawyer, or a salesman.
 
 {GLOBAL_ANALYSIS_RULES}
+
+VERIFIED PURCHASE SCOPE
+{PACKAGE_RULES[package_key]}
 
 You can review:
 - full HVAC system replacements
@@ -7364,6 +7350,11 @@ Submitted HVAC Quote(s):
         analysis.price_facts, project_zip=request.project_zip,
         market_area=", ".join(part for part in (request.city, request.state) if part) or None,
     )
+    if len(request.files) == 1:
+        analysis.quote_comparison = ""
+        analysis.best_quote_recommendation = ""
+    if package_key != "tier3":
+        analysis.contractor_vetting = ""
 
     send_review_email(
         customer_name=customer_name,
@@ -7395,17 +7386,15 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 @app.post("/upload")
 async def upload_file(
     files: List[UploadFile] = File(...),
-    package: str = Form(...),
+    package: Optional[str] = Form(None),
+    packageName: Optional[str] = Form(None),
     customer_name: str = Form(...),
     customer_email: str = Form(...),
+    authorization: AuthorizedPurchase = Depends(require_purchase),
 ):
+    package = authorization.validate_submission(len(files), package, packageName)
     print("PACKAGE RECEIVED:", package)
     print("NUMBER OF FILES:", len(files))
-    if len(files) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="You may upload a maximum of 3 quotes."
-        )
 
     uploaded_quotes = []
 
@@ -7446,7 +7435,7 @@ async def upload_file(
         files=uploaded_quotes,
     )
 
-    analysis = await analyze_hvac_quote(request)
+    analysis = await analyze_hvac_quote(request, authorization)
 
     return HTMLResponse(
         build_report_html(analysis, quote_count=len(uploaded_quotes))
@@ -7460,8 +7449,12 @@ async def get_upload(filename: str):
     return FileResponse(UPLOAD_DIR / filename)
 
 @app.get("/upload-page", response_class=HTMLResponse)
-async def upload_page(package: str = "basic"):
-    if package not in {"basic", "standard"}: package = "basic"
+async def upload_page(
+    package: Optional[str] = None,
+    packageName: Optional[str] = None,
+    authorization: AuthorizedPurchase = Depends(require_purchase),
+):
+    package = authorization.validate_claims(package, packageName)
     return """
 <!DOCTYPE html>
 <html>

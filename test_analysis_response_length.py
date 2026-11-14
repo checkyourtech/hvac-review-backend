@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 from openai import LengthFinishReasonError
 from openai.lib._parsing._completions import parse_chat_completion
 from openai.lib._pydantic import to_strict_json_schema

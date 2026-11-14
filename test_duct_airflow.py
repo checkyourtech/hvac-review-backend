@@ -228,7 +228,7 @@ class DuctAirflowTests(unittest.TestCase):
             self.assertNotIn("Can the Ductwork", main.build_report_html(final, 1))
 
     def test_upload_path(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         for name in ("good", "partial", "bad", "capacity_increase", "return_restriction"):
             with self.subTest(name=name):
                 raw = raw_case(name)
@@ -463,7 +463,7 @@ class DuctAirflowTests(unittest.TestCase):
 
     def test_good_whole_report_restores_omitted_elective_basis_and_sizing(self):
         """No sizing/duct completeness bypass: only external AI/email are mocked."""
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = raw_case("good")
         raw.replacement_context = main.ReplacementContext.ELECTIVE
         raw.technical_assessments = [raw.technical_assessments[1], raw.technical_assessments[3]]
@@ -515,7 +515,7 @@ class DuctAirflowTests(unittest.TestCase):
         self.assertIn("The proposed size is tied to building-specific load results.", final.good_signs)
 
     def test_partial_whole_report_isolates_duct_gap(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = raw_case("partial")
         raw.replacement_context = main.ReplacementContext.ELECTIVE
         raw.technical_assessments = [raw.technical_assessments[1], raw.technical_assessments[3]]
@@ -600,7 +600,7 @@ class DuctAirflowTests(unittest.TestCase):
         self.assertIn("duct_airflow", [main.contractor_question_category(q) for q in final.contractor_questions])
 
     def test_bad_whole_report_has_only_measured_duct_conflict(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = raw_case("bad")
         raw.replacement_context = main.ReplacementContext.ELECTIVE
         raw.technical_assessments = [raw.technical_assessments[1], raw.technical_assessments[3]]
@@ -693,7 +693,7 @@ class DuctAirflowTests(unittest.TestCase):
         self.assertIn("commissioning", [main.contractor_question_category(q) for q in final.contractor_questions])
 
     def test_capacity_increase_whole_report_isolates_larger_system_duct_gap(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = raw_case("capacity_increase")
         raw.replacement_context = main.ReplacementContext.ELECTIVE
         raw.technical_assessments = [raw.technical_assessments[1], raw.technical_assessments[3]]
@@ -806,7 +806,7 @@ class DuctAirflowTests(unittest.TestCase):
         self.assertNotIn("return", summary)
 
     def test_return_correction_whole_report_recovers_source_scope(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         raw = raw_case("bad")
         raw.replacement_context = main.ReplacementContext.ELECTIVE
         raw.technical_assessments = [raw.technical_assessments[1], raw.technical_assessments[3]]
@@ -869,7 +869,7 @@ class DuctAirflowTests(unittest.TestCase):
         self.assertTrue(any("supply duct" in c for c in duct_items(final)[0].contradictions))
 
     def test_return_generic_gaps_and_omitted_assessment_through_upload(self):
-        from fastapi.testclient import TestClient
+        from offline_test_client import AuthorizedTestClient as TestClient
         from duct_airflow import submitted_return_correction
         for gaps in (["The quote does not show how the ducts support the proposed airflow."],
                      ["Final static pressure and airflow results are not yet documented."], None):

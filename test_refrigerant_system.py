@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from fastapi.testclient import TestClient
+from offline_test_client import AuthorizedTestClient as TestClient
 import main
 import refrigerant_system as rs
 from test_technical_support_derivation import analysis_with, assessment
