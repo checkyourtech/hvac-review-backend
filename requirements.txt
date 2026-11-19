@@ -10,3 +10,4 @@ python-multipart
 pypdf
 PyMuPDF
 Pillow
+pillow-heif>=0.21

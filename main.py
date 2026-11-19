@@ -6,20 +6,30 @@ import smtplib
 import urllib.request
 import re
 import logging
+import hashlib
+import time
 from dataclasses import replace
 from enum import Enum
 from email.message import EmailMessage
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
-import uuid
 from openai import OpenAI, LengthFinishReasonError
 from pydantic import BaseModel, Field
-from purchase_security import AuthorizedPurchase, require_purchase
+from purchase_security import AuthorizedPurchase, require_purchase, QUOTE_LIMITS
+from document_intake import (
+    IntakeBodyLimit, MAX_FILE_BYTES, extract_text_from_uploaded_file, upload_form,
+    validate_customer, validate_filename, validate_text, validate_total_text,
+    prepare_document, quote_groups, MAX_PDF_PAGES, MAX_VISUAL_PAGES_PER_QUOTE,
+    MAX_PREPARED_BYTES, IMAGE_FORMATS,
+)
+from image_transcription import TranscriptionCache, transcribe_page
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
@@ -35,7 +45,6 @@ from system_sizing import (
     component_repair_without_sizing_scope,
     mini_split_installation_scope, new_mini_split_installation,
 )
-from pypdf import PdfReader
 from duct_airflow import (
     DUCT_AIRFLOW_RULES, duct_required, duct_text, duct_items,
     normalize_duct_assessments, finalize_duct_fields, duct_paragraphs, compose_duct_summary,
@@ -101,9 +110,17 @@ from evidence_integrity import (
 load_dotenv()
 
 app = FastAPI(title="HVAC Quote Analyzer")
+app.add_middleware(IntakeBodyLimit)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.exception_handler(RequestValidationError)
+async def invalid_submission(request, exc):
+    # Pydantic's default error includes submitted values, potentially file text.
+    return JSONResponse(status_code=422, content={"detail": "Invalid submission. Check the required customer and quote fields."})
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+image_text_cache = TranscriptionCache()
 
 EMAIL_USER = "reviews@checkyourtechs.com"
 BUSINESS_EMAIL = "reviews@checkyourtechs.com"
@@ -247,7 +264,7 @@ class AnalyzeRequest(BaseModel):
     package: Optional[str] = Field(default=None, alias="package")
     packageName: Optional[str] = None
     customer_name: Optional[str] = None
-    customerName: Optional[str] = "Website Customer"
+    customerName: Optional[str] = None
     customer_email: Optional[str] = None
     customerEmail: Optional[str] = None
     contractor_1_name: str = ""
@@ -6204,13 +6221,6 @@ def finalize_customer_analysis(
         finalized.decision.technical_support = derived_technical_support
         print("AI TECHNICAL SUPPORT:", ai_technical_support)
         print("DERIVED TECHNICAL SUPPORT:", derived_technical_support)
-        print(
-            "TECHNICAL ASSESSMENTS:",
-            [
-                assessment.model_dump()
-                for assessment in finalized.technical_assessments
-            ],
-        )
     elif not validate_evidence:
         print(
             "TECHNICAL SUPPORT FALLBACK: no structured technical assessments; "
@@ -7132,26 +7142,23 @@ async def analyze_hvac_quote(
         raise HTTPException(status_code=401, detail="Verified purchase authorization is required.")
     package_key = authorization.validate_submission(
         len(request.files), request.package, request.packageName)
-    customer_name = request.customerName or request.customer_name or "Website Customer"
-    customer_email = request.customerEmail or request.customer_email or ""
+    customer_name, customer_email = validate_customer(
+        request.customerName, request.customerEmail, request.customer_name, request.customer_email)
 
     quote_blocks = []
     file_names = []
 
     for index, uploaded_file in enumerate(request.files, start=1):
-        file_name = uploaded_file.fileName or uploaded_file.originalFileName or f"quote{index}.pdf"
-        download_url = uploaded_file.downloadUrl or uploaded_file.fileUrl
-
-        if uploaded_file.extractedText:
-            quote_text = uploaded_file.extractedText
-        elif download_url:
-            file_bytes = download_file(download_url)
-            quote_text = extract_file_text(file_bytes, file_name)
-        else:
-            raise HTTPException(status_code=400, detail="Missing quote text or downloadUrl.")
-
-        if not quote_text.strip():
-            raise HTTPException(status_code=400, detail="The proposal contains no readable quote text.")
+        if uploaded_file.downloadUrl or uploaded_file.fileUrl:
+            raise HTTPException(status_code=400, detail="File URLs are not supported. Upload the document directly or submit its extracted text.")
+        if (uploaded_file.fileName is not None and uploaded_file.originalFileName is not None
+                and uploaded_file.fileName != uploaded_file.originalFileName):
+            raise HTTPException(status_code=400, detail="Conflicting quote file names.")
+        file_name = uploaded_file.fileName if uploaded_file.fileName is not None else uploaded_file.originalFileName
+        if file_name is None:
+            file_name = f"quote{index}.txt"
+        validate_filename(file_name)
+        quote_text = validate_text(uploaded_file.extractedText)
 
         file_names.append(file_name)
 
@@ -7164,12 +7171,12 @@ async def analyze_hvac_quote(
     """
         )
 
+    validate_total_text([file.extractedText for file in request.files])
     all_quotes_text = "\n\n".join(quote_blocks)
 
     # Atomic usage reservation follows initial validation and precedes paid work.
     authorization.consume()
     classification = classify_quotes(all_quotes_text)
-    print("QUOTE CLASSIFICATION:", classification.model_dump())
 
     analysis_knowledge = get_analysis_knowledge(classification, all_quotes_text)
     print("ANALYSIS KNOWLEDGE LENGTH:", len(analysis_knowledge))
@@ -7364,62 +7371,74 @@ Submitted HVAC Quote(s):
         analysis=analysis
     )
 
-    print("ANALYSIS RESULT:", analysis)
     return analysis
 
-def extract_text_from_uploaded_file(filepath: str) -> str:
-    text = ""
-
-    if filepath.lower().endswith(".pdf"):
-        reader = PdfReader(filepath)
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text
-
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read()
+# Compatibility for offline callers that patch this name; intake no longer
+# creates or writes the customer uploads directory.
 UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 @app.post("/upload")
 async def upload_file(
-    files: List[UploadFile] = File(...),
-    package: Optional[str] = Form(None),
-    packageName: Optional[str] = Form(None),
-    customer_name: str = Form(...),
-    customer_email: str = Form(...),
+    http_request: Request,
     authorization: AuthorizedPurchase = Depends(require_purchase),
 ):
-    package = authorization.validate_submission(len(files), package, packageName)
-    print("PACKAGE RECEIVED:", package)
-    print("NUMBER OF FILES:", len(files))
-
     uploaded_quotes = []
-
-    for file in files:
-        file_id = str(uuid.uuid4())
-        filename = f"{file_id}_{file.filename}"
-        filepath = UPLOAD_DIR / filename
-
-        with open(filepath, "wb") as buffer:
-            buffer.write(await file.read())
-
-        quote_text = extract_text_from_uploaded_file(str(filepath))
-
-        print("QUOTE FILE:", file.filename)
-        print("QUOTE LENGTH:", len(quote_text))
-
-        uploaded_quotes.append(
-            UploadedQuote(
-                fileName=file.filename,
-                originalFileName=file.filename,
-                downloadUrl="",
-                fileUrl="",
-                extractedText=quote_text,
-            )
-        )
+    async with upload_form(http_request, QUOTE_LIMITS[authorization.tier]) as form:
+        files = form.getlist("files")
+        groups = quote_groups(form, QUOTE_LIMITS[authorization.tier])
+        package = authorization.validate_submission(len(groups), form.get("package"), form.get("packageName"))
+        customer_name, customer_email = validate_customer(form.get("customer_name"), form.get("customer_email"))
+        prepared, fingerprints = {}, set()
+        deadline = time.monotonic() + 180
+        # Validate/decode the entire submission before any paid vision calls.
+        for quote_index, group in enumerate(groups, 1):
+            for attached in group["pages"]:
+                if time.monotonic() >= deadline:
+                    raise HTTPException(504, "Document preparation timed out. No review was started. Please submit fewer or smaller pages.")
+                index = attached["file"]
+                file = files[index]
+                data = await file.read(MAX_FILE_BYTES + 1)
+                digest = hashlib.sha256(data).digest()
+                if digest in fingerprints and Path(file.filename).suffix.lower() in IMAGE_FORMATS:
+                    raise HTTPException(400, {"message": "The same file was attached more than once. Remove the duplicate page.", "file": index})
+                fingerprints.add(digest)
+                try:
+                    prepared[index] = await run_in_threadpool(
+                        prepare_document, data, file.filename, file.content_type, attached["rotation"])
+                except HTTPException as exc:
+                    raise HTTPException(exc.status_code, {"message": exc.detail, "quote": quote_index, "file": index}) from None
+            pages = [page for attached in group["pages"] for page in prepared[attached["file"]]]
+            if len(pages) > MAX_PDF_PAGES or sum("image" in page for page in pages) > MAX_VISUAL_PAGES_PER_QUOTE:
+                raise HTTPException(413, {"message": "Each quote allows up to 50 document pages, including at most 10 photo/scanned pages.", "quote": quote_index})
+            native_text = "\n".join(page.get("text", "") for page in pages)
+            if native_text.strip():
+                validate_text(native_text)
+            if sum(len(page.get("image", "")) for pages in prepared.values() for page in pages) > MAX_PREPARED_BYTES:
+                raise HTTPException(413, "The images exceed the combined processing limit. Submit smaller clear photos.")
+        validate_total_text([page.get("text", "") for pages in prepared.values() for page in pages])
+        for quote_index, group in enumerate(groups, 1):
+            blocks = []
+            for attached in group["pages"]:
+                index = attached["file"]
+                for page in prepared[index]:
+                    text = page.get("text", "")
+                    if "image" in page:
+                        if time.monotonic() >= deadline:
+                            raise HTTPException(504, "Page extraction timed out. No review was started. Try again; recently read pages can be reused.")
+                        try:
+                            text = await run_in_threadpool(image_text_cache.read, authorization.purchase, page["image"],
+                                lambda image: transcribe_page(client, image, timeout=max(1, min(30, deadline - time.monotonic()))))
+                        except HTTPException as exc:
+                            raise HTTPException(exc.status_code, {"message": exc.detail, "quote": quote_index, "file": index, "page": page["page"]}) from None
+                    if text.strip():
+                        method = "image transcription" if "image" in page else "document text"
+                        # Use the accepted metadata prefix so filenames/page
+                        # labels remain attribution, never diagnostic evidence.
+                        blocks.append(f"File Name: {files[index].filename} (page {page['page']}, {method})\n{text}")
+            quote_text = validate_text("\n\n".join(blocks))
+            name = files[group["pages"][0]["file"]].filename if len(group["pages"]) == 1 else f"Contractor quote {quote_index}.txt"
+            uploaded_quotes.append(UploadedQuote(fileName=name, originalFileName=name, extractedText=quote_text))
+        validate_total_text([file.extractedText for file in uploaded_quotes])
 
     request = AnalyzeRequest(
         package=package,
@@ -7460,7 +7479,10 @@ async def upload_page(
 <html>
 <head>
     <title>Upload Your HVAC Quote | Check Your Tech</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        * { box-sizing: border-box; }
         body {
             font-family: Arial, sans-serif;
             background: #f4f6f8;
@@ -7517,6 +7539,14 @@ async def upload_page(
             font-size: 13px;
             color: #6b7280;
         }
+        .quote-group { border: 1px solid #d1d5db; padding: 16px; margin: 18px 0; border-radius: 8px; }
+        .page-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
+        .page-preview img { max-width: 120px; max-height: 140px; object-fit: contain; border: 1px solid #d1d5db; }
+        .page-preview button { width: auto; margin: 0; padding: 8px; }
+        .page-preview span { overflow-wrap: anywhere; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        #upload-status { white-space: pre-line; }
+        @media (max-width: 600px) { body { padding: 12px; } .card { padding: 18px; } }
     </style>
 </head>
 <body>
@@ -7537,26 +7567,36 @@ async def upload_page(
          flags—before you commit.
         </p>
 
-        <form action="/upload" method="post" enctype="multipart/form-data">
+        <form id="quote-upload" action="/upload" method="post" enctype="multipart/form-data" data-quote-limit="{quote_limit}">
             <label>Your Name</label>
-            <input name="customer_name" required>
+            <input name="customer_name" maxlength="120" required>
 
             <label>Email Address</label>
-            <input name="customer_email" type="email" required>
+            <input name="customer_email" type="email" maxlength="254" required>
 
             <input type="hidden" name="package" value="{package}">
 
-            <label>Upload Quote File</label>
-            <input name="files" type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" multiple required>
+            <p>Keep every page from one contractor proposal in the same quote group.
+               Different contractor proposals must use separate groups.</p>
+            <div id="quote-groups"></div>
+            <button type="button" id="add-quote">Add another contractor quote</button>
+            <p class="small">Up to {quote_limit} contractor quote(s). Each quote supports 10 attachments,
+                up to 50 document pages including 10 photo/scanned pages. Use PDF, DOCX, TXT,
+                JPG, JPEG, PNG, HEIC or HEIF. Maximum 10 MiB per file and 30 MiB combined.
+                Photos must be at least 600 pixels per side and at most 25 megapixels.
+                Take clear photos of all page edges; check prices, model numbers and small print.
+                Each quote may contain 100,000 text characters, with 200,000 combined.</p>
 
             <p class="small">
                 By uploading, you agree that this review is for informational purposes only
                 and does not replace a licensed contractor inspection.
             </p>
 
-            <button type="submit">Upload Quote</button>
+            <p id="upload-status" role="status" aria-live="polite">Waiting for secure purchase verification.</p>
+            <button type="submit" id="submit-quotes" disabled>Review these quotes</button>
         </form>
+        <script src="/static/quote_upload.js" defer></script>
     </div>
 </body>
 </html>
-    """.replace("{package}",package)
+    """.replace("{package}", package).replace("{quote_limit}", str(QUOTE_LIMITS[package])).replace("{multiple}", "multiple" if QUOTE_LIMITS[package] > 1 else "")

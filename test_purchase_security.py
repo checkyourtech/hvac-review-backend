@@ -295,8 +295,8 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.assertEqual(self.analysis.call_count, 1)
 
     def test_empty_whitespace_and_missing_text_do_not_consume(self):
-        for files in ([], [{"extractedText": "  "}], [{"fileName": "quote.txt"}]):
-            self.assertEqual(self.submit(files=files).status_code, 400)
+        for files, status in (([], 400), ([{"extractedText": "  "}], 422), ([{"fileName": "quote.txt"}], 422)):
+            self.assertEqual(self.submit(files=files).status_code, status)
         self.assert_no_paid_work()
 
     def test_schema_validation_failure_does_not_consume(self):
@@ -305,7 +305,7 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.assert_no_paid_work()
 
     def test_file_extraction_failure_does_not_consume(self):
-        self.assertEqual(self.upload(content=b"invalid-pdf", filename="invalid.pdf").status_code, 500)
+        self.assertEqual(self.upload(content=b"invalid-pdf", filename="invalid.pdf").status_code, 422)
         self.assert_no_paid_work()
 
     def test_analysis_failure_retains_record_without_automatic_reuse(self):

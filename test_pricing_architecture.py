@@ -139,6 +139,7 @@ Installation materials: $200'''
         )
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(parsed=raw))])
         request = main.AnalyzeRequest(
+            customerName='Offline Regression', customerEmail='offline@example.invalid',
             files=[main.UploadedQuote(fileName='repair.txt', extractedText='Repair total: $725')],
             project_zip='01234', city='Example City', state='MA',
         )
