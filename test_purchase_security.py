@@ -274,6 +274,91 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.assertEqual(list(self.uploads.iterdir()), [])
         self.assert_no_paid_work()
 
+    def test_disabled_tier_never_registers_a_paid_entitlement(self):
+        service = self.app.state.entitlements
+        with patch.object(self.ledger, "register", wraps=self.ledger.register) as register, \
+                patch.object(self.ledger, "consume", wraps=self.ledger.consume) as consume:
+            # Even a trusted verifier claiming a paid order cannot enable Tier 3.
+            # Noncanonical verifier tiers must also fail closed, not become grants.
+            for tier in ("tier3", "premium", "TIER3", " tier3 "):
+                with self.subTest(tier=tier):
+                    self.purchase = self.make_purchase(tier=tier, payment_eligible=True)
+                    with self.assertRaises(HTTPException) as error:
+                        asyncio.run(service.authorize(self.purchase.purchase_id, "offline-verified-proof"))
+                    self.assertEqual(error.exception.status_code, 503)
+            register.assert_not_called()
+            consume.assert_not_called()
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM purchases").fetchone()[0], 0)
+        self.assert_no_paid_work()
+
+    def test_preexisting_tier3_record_cannot_be_used_or_downgraded_by_customer(self):
+        self.purchase = self.make_purchase(tier="tier3")
+        # Model a stale internal record, not a public provisioning mechanism.
+        self.ledger.register(self.purchase)
+        for claim in ("basic", "standard", "premium"):
+            with self.subTest(claim=claim):
+                self.assertEqual(self.submit(package=claim).status_code, 503)
+                self.assertEqual(self.upload(data={"packageName": claim}).status_code, 503)
+                self.assertEqual(self.client.get("/upload-page", params={"package": claim},
+                    headers=self.headers()).status_code, 503)
+        with contextlib.closing(sqlite3.connect(str(self.db_path))) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM submissions").fetchone()[0], 0)
+        self.assert_no_paid_work()
+
+    def test_launch_tiers_reject_premium_claims_on_every_customer_entry_point(self):
+        for tier in ("tier1", "tier2"):
+            self.purchase = self.make_purchase(tier=tier, purchase_id="claim-" + tier)
+            for field in ("package", "packageName"):
+                for claim in ("tier3", " Premium "):
+                    with self.subTest(tier=tier, field=field, claim=claim):
+                        self.assertEqual(self.submit(**{field: claim}).status_code, 403)
+                        self.assertEqual(self.upload(data={field: claim,
+                            "customer_name": "Offline", "customer_email": "offline@example.invalid"}).status_code, 403)
+                        self.assertEqual(self.client.get("/upload-page", params={field: claim},
+                            headers=self.headers()).status_code, 403)
+        self.assertEqual(list(self.uploads.iterdir()), [])
+        self.assert_no_paid_work()
+
+    def test_launch_reports_strip_disabled_vetting_before_json_html_and_delivery(self):
+        marker = "SYNTHETIC_DISABLED_VETTING_CONTENT"
+        incoming = saved_response()
+        incoming.contractor_vetting = marker
+        self.analysis.side_effect = lambda **kwargs: incoming.model_copy(deep=True)
+        for tier, count in (("tier1", 1), ("tier2", 3)):
+            with self.subTest(tier=tier):
+                self.purchase = self.make_purchase(tier=tier, purchase_id="reports-" + tier, submission_limit=2)
+                response = self.submit(count=count)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["contractor_vetting"], "")
+                self.assertNotIn(marker, response.text)
+                uploaded = self.upload(count=count)
+                self.assertEqual(uploaded.status_code, 200, uploaded.text)
+                delivered = self.email.call_args.kwargs["analysis"]
+                self.assertEqual(delivered.contractor_vetting, "")
+                self.assertEqual(uploaded.text, main.build_report_html(delivered, count))
+                self.assertNotIn(marker, uploaded.text)
+                self.assertNotIn("<h2>Contractor Vetting</h2>", uploaded.text)
+                self.assertIn('onclick="window.print()"', uploaded.text)
+        for call in self.analysis.call_args_list:
+            self.assertNotIn("Contractor vetting search results:", call.kwargs["messages"][1]["content"])
+        for call in self.email.call_args_list:
+            self.assertEqual(call.kwargs["analysis"].contractor_vetting, "")
+        self.assertEqual(incoming.contractor_vetting, marker)
+
+    def test_launch_upload_pages_expose_only_verified_quote_limits(self):
+        for tier, limit in (("tier1", 1), ("tier2", 3)):
+            with self.subTest(tier=tier):
+                self.purchase = self.make_purchase(tier=tier, purchase_id="page-" + tier)
+                response = self.client.get("/upload-page", headers=self.headers())
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(f'data-quote-limit="{limit}"', response.text)
+                self.assertIn(f'name="package" value="{tier}"', response.text)
+                self.assertNotIn("tier3", response.text.lower())
+                self.assertNotIn("premium", response.text.lower())
+                self.assertNotIn("vetting", response.text.lower())
+        self.assert_no_paid_work()
+
     def test_concurrent_requests_cannot_consume_same_entitlement(self):
         barrier = threading.Barrier(2)
         original = self.ledger.consume
