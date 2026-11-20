@@ -18,7 +18,7 @@ import main
 from offline_test_client import AuthorizedTestClient
 from purchase_security import (
     EntitlementService, InvalidPurchaseProof, SQLitePurchaseLedger,
-    VerifiedPurchase, require_purchase,
+    VerifiedPurchase, require_purchase, require_report_access,
 )
 from test_blower_live_response import saved_response
 from test_blower_support_normalization import BAD, classified
@@ -360,16 +360,13 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.assert_no_paid_work()
 
     def test_concurrent_requests_cannot_consume_same_entitlement(self):
-        barrier = threading.Barrier(2)
-        original = self.ledger.consume
-        def consume(purchase):
-            barrier.wait(timeout=5)
-            return original(purchase)
-        with patch.object(self.ledger, "consume", side_effect=consume), ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(lambda _: self.submit().status_code, range(2)))
-        self.assertEqual(sorted(results), [200, 409])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(pool.map(lambda _: self.submit(), range(2)))
+        self.assertIn(200, [r.status_code for r in responses])
+        self.assertTrue(all(r.status_code in {200, 202, 409} for r in responses))
+        jobs = {r.headers.get("X-Review-Job-ID") for r in responses if r.status_code != 409}
+        self.assertEqual(len(jobs), 1)
         self.assertEqual(self.usage(), 1)
-        self.assertEqual(self.classifier.call_count, 1)
         self.assertEqual(self.analysis.call_count, 1)
 
     def test_ledger_reopen_preserves_consumption(self):
@@ -403,7 +400,7 @@ class PurchaseSecurityTests(unittest.TestCase):
 
     def test_multiple_purchased_uses_are_bounded_by_trusted_limit(self):
         self.purchase = self.make_purchase(submission_limit=2)
-        self.assertEqual([self.submit().status_code for _ in range(3)], [200, 200, 409])
+        self.assertEqual([self.submit(city=f"Synthetic City {i}").status_code for i in range(3)], [200, 200, 409])
         self.assertEqual(self.usage(), 2)
 
     def test_changed_verified_owner_tier_or_quantity_cannot_reset_record(self):
@@ -437,7 +434,7 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.assert_no_paid_work()
 
     def test_ledger_failure_fails_closed_before_analysis(self):
-        with patch.object(self.ledger, "consume", side_effect=sqlite3.OperationalError("private path")):
+        with patch.object(self.ledger, "_reserve", side_effect=sqlite3.OperationalError("private path")):
             response = self.submit()
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("private path", response.text)
@@ -445,9 +442,10 @@ class PurchaseSecurityTests(unittest.TestCase):
 
     def test_no_public_purchase_provisioning_or_alternate_analysis_route(self):
         paid_routes = [r for r in self.app.routes if "POST" in getattr(r, "methods", set())]
-        self.assertEqual({r.path for r in paid_routes}, {"/upload", "/analyze"})
+        self.assertEqual({r.path for r in paid_routes}, {"/upload", "/analyze", "/jobs/{job_id}/delivery-retry"})
         for route in paid_routes:
-            self.assertTrue(any(d.call is require_purchase for d in route.dependant.dependencies))
+            expected = require_report_access if route.path.endswith("/delivery-retry") else require_purchase
+            self.assertTrue(any(d.call is expected for d in route.dependant.dependencies))
         self.assertEqual(self.client.post("/purchase", json={"paid": True}).status_code, 404)
 
     def test_direct_python_call_requires_explicit_authorization(self):

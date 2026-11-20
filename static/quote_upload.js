@@ -11,7 +11,7 @@
   const add = document.getElementById("add-quote");
   const limit = Number(form.dataset.quoteLimit);
   const accepts = ".pdf,.docx,.txt,.jpg,.jpeg,.png,.heic,.heif";
-  let groups = [[]], proof = null, busy = false;
+  let groups = [[]], proof = null, busy = false, submissionKey = null;
   const objectURLs = new Set();
   const say = text => { status.textContent = text; };
 
@@ -26,6 +26,7 @@
     proof = { Authorization: credentials.authorization, "X-Purchase-ID": credentials.purchaseId };
     submit.disabled = busy;
     say("Add every page, check the previews, then submit your quotes.");
+    recoverReviews().catch(() => say("Saved reviews could not be checked. Reconnect before resubmitting."));
   };
   function releaseURLs() {
     for (const url of objectURLs) URL.revokeObjectURL(url);
@@ -35,7 +36,7 @@
     const element = document.createElement("button");
     element.type = "button";
     element.textContent = text;
-    element.addEventListener("click", action);
+    element.addEventListener("click", () => { submissionKey = null; action(); });
     element.disabled = busy;
     return element;
   }
@@ -47,6 +48,7 @@
     if (camera) input.setAttribute("capture", "environment");
     input.setAttribute("aria-label", camera ? "Take a photo of a proposal page" : "Choose proposal pages or photos");
     input.addEventListener("change", () => {
+      submissionKey = null;
       const selected = Array.from(input.files || []);
       if (!selected.length) return;
       if (group.length + selected.length - (replaceIndex === null ? 0 : 1) > 10) {
@@ -117,7 +119,52 @@
     add.disabled = busy;
     submit.disabled = busy || !proof;
   }
-  add.addEventListener("click", () => { if (!busy && groups.length < limit) { groups.push([]); render(); } });
+  form.addEventListener("input", () => { submissionKey = null; });
+  function showReport(report) {
+    releaseURLs();
+    proof = null;
+    document.open(); document.write(report); document.close();
+  }
+  async function openSavedReport(jobId) {
+    const response = await fetch(`/jobs/${encodeURIComponent(jobId)}/report`, {headers: proof, cache: "no-store"});
+    if (!response.ok) throw new Error("Report unavailable");
+    showReport(await response.text());
+  }
+  async function recoverReviews() {
+    const response = await fetch("/jobs", {headers: proof, cache: "no-store"});
+    if (!response.ok) throw new Error("Recovery unavailable");
+    const body = await response.json();
+    const prior = document.getElementById("saved-reviews");
+    if (prior) prior.remove();
+    const list = document.createElement("div");
+    list.id = "saved-reviews";
+    for (const job of body.jobs || []) {
+      const row = document.createElement("p");
+      row.textContent = `Review ${job.job_id}: ${job.state}. `;
+      if (job.state === "completed") {
+        const view = document.createElement("button");
+        view.type = "button";
+        view.textContent = "Open saved report";
+        view.onclick = () => openSavedReport(job.job_id).catch(() => say("Sign in again to recover your report."));
+        row.append(view);
+      } else if (job.error) row.append(document.createTextNode(job.error.message));
+      list.append(row);
+    }
+    status.after(list);
+  }
+  async function waitForReview(job) {
+    for (let poll = 0; poll < 60; poll++) {
+      if (job.state === "completed") { await openSavedReport(job.job_id); return; }
+      if (job.state === "failed") { say(job.error?.message || "The review could not finish. Contact support with the review ID."); return; }
+      say(`Review ${job.job_id} is ${job.state}. You can sign in again to recover it.`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const response = await fetch(`/jobs/${encodeURIComponent(job.job_id)}`, {headers: proof, cache: "no-store"});
+      if (!response.ok) throw new Error("Status unavailable");
+      job = await response.json();
+    }
+    say(`Review ${job.job_id} is still processing. Sign in again to check its status before resubmitting.`);
+  }
+  add.addEventListener("click", () => { if (!busy && groups.length < limit) { submissionKey = null; groups.push([]); render(); } });
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (busy || !proof) { say("Secure purchase verification is required before uploading."); return; }
@@ -132,23 +179,23 @@
     let index = 0;
     data.set("quote_groups", JSON.stringify(groups.map(group => ({pages: group.map(page => ({file: index++, rotation: page.rotation}))}))));
     groups.flat().forEach(page => data.append("files", page.file, page.file.name));
-    busy = true; render(); say("Reading your pages and preparing your review. Keep this page open.");
+    submissionKey ||= crypto.randomUUID();
+    busy = true; render(); say("Reading your pages and preparing your review. Completed reports can be recovered after signing in.");
     try {
-      const response = await fetch("/upload", {method: "POST", headers: proof, body: data});
+      const response = await fetch("/upload", {method: "POST", headers: {...proof, "Idempotency-Key": submissionKey}, body: data});
+      if (response.status === 202) { await waitForReview(await response.json()); return; }
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         const detail = body.detail;
-        const message = typeof detail === "string" ? detail : detail?.message || "The upload could not finish. Please try again.";
+        const message = typeof detail === "string" ? detail : detail?.message || body.error?.message || "The upload could not finish. Check saved review status before retrying.";
         const location = typeof detail?.file === "number" ? `Attached file ${detail.file + 1}${detail.page ? `, page ${detail.page}` : ""}: ` : "";
         say(location + message);
         return;
       }
       const report = await response.text();
-      releaseURLs();
-      proof = null;
-      document.open(); document.write(report); document.close();
+      showReport(report);
     } catch (_) {
-      say("The connection was interrupted. Keep your selected pages. If analysis had started, contact support before resubmitting.");
+      say("The connection was interrupted. Keep your selected pages and sign in again to check saved reviews. Resubmitting unchanged pages with this key will check the same job.");
     } finally {
       busy = false;
       if (document.getElementById("quote-upload")) render();

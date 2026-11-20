@@ -218,6 +218,11 @@ def run_acceptance(main, photos, reader=None):
         captured.append(request)
         raise AnalysisStopped()
 
+    async def transcription_only_submission(http_request, authorization, fingerprint, operation, kind):
+        # This explicit acceptance harness stops before analysis. It exercises
+        # real purchase verification/intake without starting a report job.
+        return await operation(authorization)
+
     def forbidden(*args, **kwargs):
         raise AssertionError("Unexpected analysis, report, delivery, or image call")
 
@@ -232,6 +237,7 @@ def run_acceptance(main, photos, reader=None):
         stack.callback(cache.close)
         stack.enter_context(patch.object(main, "image_text_cache", cache))
         stack.enter_context(patch.object(main, "analyze_hvac_quote", stop_analysis))
+        stack.enter_context(patch.object(main, "submit_report_job", transcription_only_submission))
         for name in ("classify_quotes", "request_structured_analysis", "send_review_email", "build_report_html"):
             stack.enter_context(patch.object(main, name, forbidden))
         stack.enter_context(patch.object(main.client.beta.chat.completions, "parse", forbidden))

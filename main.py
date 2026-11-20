@@ -22,12 +22,16 @@ from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 from openai import OpenAI, LengthFinishReasonError
 from pydantic import BaseModel, Field
-from purchase_security import AuthorizedPurchase, require_purchase, QUOTE_LIMITS
+from purchase_security import AuthorizedPurchase, require_purchase, require_report_access, QUOTE_LIMITS
+from report_jobs import (
+    SQLiteReportStore, preserve_report, submit as submit_report_job, digest as report_digest,
+    public_status, PRIVATE_HEADERS, notify, response_for, ReviewResponseLimit,
+)
 from document_intake import (
     IntakeBodyLimit, MAX_FILE_BYTES, extract_text_from_uploaded_file, upload_form,
     validate_customer, validate_filename, validate_text, validate_total_text,
     prepare_document, quote_groups, MAX_PDF_PAGES, MAX_VISUAL_PAGES_PER_QUOTE,
-    MAX_PREPARED_BYTES, IMAGE_FORMATS,
+    MAX_PREPARED_BYTES, IMAGE_FORMATS, MAX_UPLOAD_BODY,
 )
 from image_transcription import TranscriptionCache, transcribe_page
 from pricing import (
@@ -7049,14 +7053,14 @@ def send_review_email(
     package_key,
     file_names,
     analysis,
+    report_html=None,
 ):
     email_password = os.getenv("EMAIL_APP_PASSWORD")
 
     if not email_password:
-        print("EMAIL_APP_PASSWORD missing. Skipping email send.")
-        return
+        return False
 
-    body = build_report_html(analysis, quote_count=len(file_names))
+    body = report_html if report_html is not None else build_report_html(analysis, quote_count=len(file_names))
     
     msg = EmailMessage()
     msg["Subject"] = f"New HVAC Quote Review - {customer_name}"
@@ -7065,9 +7069,10 @@ def send_review_email(
     msg.set_content("This email requires an HTML-compatible email client.")
     msg.add_alternative(body, subtype="html")
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
         smtp.login(EMAIL_USER, email_password)
         smtp.send_message(msg)
+    return True
 
 
 ANALYSIS_MAX_COMPLETION_TOKENS = 16384  # gpt-4o-mini's output ceiling, not its context window.
@@ -7120,10 +7125,7 @@ def request_structured_analysis(messages) -> HVACAnalysis:
             )
             if attempt == 0:
                 continue
-            raise HTTPException(status_code=502, detail=(
-                "The review could not be completed because the analysis response was too long. "
-                "No report was generated. Please try again."
-            )) from None
+            raise ReviewResponseLimit() from None
         parsed = completion.choices[0].message.parsed if completion.choices else None
         if not isinstance(parsed, HVACAnalysis):
             raise HTTPException(status_code=502, detail=(
@@ -7133,7 +7135,6 @@ def request_structured_analysis(messages) -> HVACAnalysis:
         return parsed
 
 
-@app.post("/analyze", response_model=HVACAnalysis)
 async def analyze_hvac_quote(
     request: AnalyzeRequest,
     authorization: AuthorizedPurchase = Depends(require_purchase),
@@ -7363,7 +7364,8 @@ Submitted HVAC Quote(s):
     if package_key != "tier3":
         analysis.contractor_vetting = ""
 
-    send_review_email(
+    preserve_report(
+        authorization, build_report_html, send_review_email,
         customer_name=customer_name,
         customer_email=customer_email,
         package_key=package_key,
@@ -7377,7 +7379,6 @@ Submitted HVAC Quote(s):
 # creates or writes the customer uploads directory.
 UPLOAD_DIR = Path("uploads")
 
-@app.post("/upload")
 async def upload_file(
     http_request: Request,
     authorization: AuthorizedPurchase = Depends(require_purchase),
@@ -7461,6 +7462,89 @@ async def upload_file(
     )
 
 
+@app.post("/analyze")
+async def submit_analysis(
+    request: AnalyzeRequest, http_request: Request,
+    authorization: AuthorizedPurchase = Depends(require_purchase),
+):
+    return await submit_report_job(http_request, authorization,
+        report_digest({"kind": "analysis", "request": request.model_dump(mode="json")}),
+        lambda grant: analyze_hvac_quote(request, grant), "json")
+
+
+@app.post("/upload")
+async def submit_upload(
+    http_request: Request, authorization: AuthorizedPurchase = Depends(require_purchase),
+):
+    # Keep input only in bounded memory. A replay request does not repeat decoding
+    # or paid transcription. Multipart boundaries are excluded from identity.
+    body = bytearray()
+    async for chunk in http_request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_UPLOAD_BODY:
+            raise HTTPException(413, "The upload exceeds the combined size limit.")
+    body = bytes(body)
+    scope = {**http_request.scope, "headers": [(b"content-type", http_request.headers.get("content-type", "").encode())]}
+    def replay_request():
+        sent = False
+        async def receive():
+            nonlocal sent
+            if sent:
+                return {"type": "http.disconnect"}
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return Request(scope, receive)
+    identity = []
+    async with upload_form(replay_request(), QUOTE_LIMITS[authorization.tier]) as form:
+        groups = quote_groups(form, QUOTE_LIMITS[authorization.tier])
+        authorization.validate_submission(len(groups), form.get("package"), form.get("packageName"))
+        validate_customer(form.get("customer_name"), form.get("customer_email"))
+        for key, value in form.multi_items():
+            if key == "files":
+                data = await value.read(MAX_FILE_BYTES + 1)
+                identity.append((key, value.filename, value.content_type, hashlib.sha256(data).hexdigest()))
+            else:
+                identity.append((key, value))
+    return await submit_report_job(http_request, authorization,
+        report_digest({"kind": "upload", "parts": identity}),
+        lambda grant: upload_file(replay_request(), grant), "html")
+
+
+@app.get("/jobs")
+async def list_review_jobs(authorization: AuthorizedPurchase = Depends(require_report_access)):
+    return JSONResponse({"jobs": SQLiteReportStore(authorization.ledger).list(authorization.purchase)}, headers=PRIVATE_HEADERS)
+
+
+@app.get("/jobs/{job_id}")
+async def review_job_status(job_id: str, authorization: AuthorizedPurchase = Depends(require_report_access)):
+    row = SQLiteReportStore(authorization.ledger).get(job_id, authorization.purchase)
+    return JSONResponse(public_status(row), headers=PRIVATE_HEADERS)
+
+
+@app.get("/jobs/{job_id}/report")
+async def retrieve_review_html(job_id: str, authorization: AuthorizedPurchase = Depends(require_report_access)):
+    row = SQLiteReportStore(authorization.ledger).get(job_id, authorization.purchase)
+    if row["state"] != "completed":
+        raise HTTPException(409, "The report is not complete. Check the review status.")
+    return response_for(row, "html")
+
+
+@app.get("/jobs/{job_id}/result")
+async def retrieve_review_json(job_id: str, authorization: AuthorizedPurchase = Depends(require_report_access)):
+    row = SQLiteReportStore(authorization.ledger).get(job_id, authorization.purchase)
+    if row["state"] != "completed":
+        raise HTTPException(409, "The report is not complete. Check the review status.")
+    return response_for(row, "json")
+
+
+@app.post("/jobs/{job_id}/delivery-retry")
+async def retry_review_notification(job_id: str, authorization: AuthorizedPurchase = Depends(require_report_access)):
+    store = SQLiteReportStore(authorization.ledger)
+    row = store.get(job_id, authorization.purchase)
+    await run_in_threadpool(notify, store, row, authorization.purchase, send_review_email, HVACAnalysis)
+    return JSONResponse(public_status(store.get(job_id, authorization.purchase)), headers=PRIVATE_HEADERS)
+
+
  
 
 ("/uploads/{filename}")
@@ -7471,7 +7555,7 @@ async def get_upload(filename: str):
 async def upload_page(
     package: Optional[str] = None,
     packageName: Optional[str] = None,
-    authorization: AuthorizedPurchase = Depends(require_purchase),
+    authorization: AuthorizedPurchase = Depends(require_report_access),
 ):
     package = authorization.validate_claims(package, packageName)
     return """

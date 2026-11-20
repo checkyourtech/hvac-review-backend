@@ -153,15 +153,19 @@ class SQLitePurchaseLedger:
         submission_id = uuid.uuid4().hex
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            updated = db.execute("""UPDATE purchases SET used = used + 1
-                WHERE purchase_id = ? AND customer_id = ? AND tier = ?
-                AND eligible = 1 AND expires_at > ? AND used < submission_limit""",
-                (purchase.purchase_id, purchase.owner_customer_id, purchase.tier, time.time()))
-            if updated.rowcount != 1:
-                raise HTTPException(409, "Purchase entitlement is unavailable or already used.")
-            db.execute("INSERT INTO submissions VALUES (?, ?, ?)",
-                       (submission_id, purchase.purchase_id, int(time.time())))
+            self._reserve(db, purchase, submission_id)
         return submission_id
+
+    def _reserve(self, db, purchase, submission_id):
+        """Reserve within the caller transaction, including a durable job transaction."""
+        updated = db.execute("""UPDATE purchases SET used = used + 1
+            WHERE purchase_id = ? AND customer_id = ? AND tier = ?
+            AND eligible = 1 AND expires_at > ? AND used < submission_limit""",
+            (purchase.purchase_id, purchase.owner_customer_id, purchase.tier, time.time()))
+        if updated.rowcount != 1:
+            raise HTTPException(409, "Purchase entitlement is unavailable or already used.")
+        db.execute("INSERT INTO submissions VALUES (?, ?, ?)",
+                   (submission_id, purchase.purchase_id, int(time.time())))
 
 
 @dataclass(frozen=True)
@@ -190,9 +194,9 @@ class AuthorizedPurchase:
     def consume(self) -> str:
         """Reserve one use after validation, immediately before paid analysis.
 
-        Once analysis begins the reservation is retained even on failure. No
-        automatic refund/retry loop is provided here; delivery/failure recovery
-        must reconcile the durable submission record in the later work package.
+        Once analysis begins the reservation is retained even on failure. Public
+        submission routes use JobPurchase to link this reservation atomically
+        and reuse it only for a bounded explicit retry of the same job.
         """
         try:
             return self.ledger.consume(self.purchase)
@@ -206,7 +210,7 @@ class EntitlementService:
     def __init__(self, verifier: PurchaseVerifier, ledger: PurchaseLedger):
         self.verifier, self.ledger = verifier, ledger
 
-    async def authorize(self, purchase_id: str, bearer_token: str) -> AuthorizedPurchase:
+    async def authorize(self, purchase_id: str, bearer_token: str, *, require_unused=True) -> AuthorizedPurchase:
         try:
             purchase = await self.verifier.verify(purchase_id, bearer_token)
         except InvalidPurchaseProof:
@@ -233,7 +237,7 @@ class EntitlementService:
             raise
         except Exception:
             raise HTTPException(503, "Purchase usage storage is unavailable.") from None
-        if remaining < 1:
+        if require_unused and remaining < 1:
             raise HTTPException(409, "Purchase entitlement is already used.")
         return AuthorizedPurchase(purchase, self.ledger)
 
@@ -250,4 +254,13 @@ async def require_purchase(request: Request) -> AuthorizedPurchase:
     service = getattr(request.app.state, "entitlements", None)
     if not isinstance(service, EntitlementService):
         raise HTTPException(503, "Paid submissions are unavailable until purchase verification is configured.")
-    return await service.authorize(purchase_id, proof)
+    return await service.authorize(purchase_id, proof, require_unused=(
+        not getattr(request.state, "report_access", False) and
+        not (request.method == "POST" and request.url.path.rstrip("/") in {"/analyze", "/upload"}
+             and "idempotency-key" in request.headers)))
+
+
+async def require_report_access(request: Request) -> AuthorizedPurchase:
+    """Reverify ownership/payment/tier even after quota is consumed; never grant more quota."""
+    request.state.report_access = True
+    return await require_purchase(request)

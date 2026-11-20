@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from purchase_security import (
     AuthorizedPurchase, SQLitePurchaseLedger, VerifiedPurchase,
-    normalize_tier, require_purchase,
+    normalize_tier, require_purchase, require_report_access,
 )
 
 
@@ -56,7 +56,9 @@ class AuthorizedTestClient(TestClient):
         tier = normalize_tier(payload.get("packageName") or payload.get("package") or "tier1")
         with offline_purchase(tier) as grant:
             self.app.dependency_overrides[require_purchase] = lambda: grant
+            self.app.dependency_overrides[require_report_access] = lambda: grant
             try:
                 return super().request(*args, **kwargs)
             finally:
                 self.app.dependency_overrides.pop(require_purchase, None)
+                self.app.dependency_overrides.pop(require_report_access, None)
