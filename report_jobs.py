@@ -1,8 +1,9 @@
 """Local, offline-tested report recovery adapter; NOT a production worker queue.
 
 Uses the same explicit SQLite database as the purchase ledger so reserving a
-review and recording its job are atomic. No raw proposals, credentials or upload
-bytes are persisted. In-flight inputs live only in bounded process memory.
+review and recording its job are atomic. The current HTTP path still keeps
+in-flight inputs in bounded memory. Stage 1's separate private-input adapter is
+internal only; it does not enable a scheduler or change submission handling.
 Deployment storage, process supervision and retention remain unconfigured.
 """
 import asyncio
@@ -22,6 +23,7 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from purchase_security import AuthorizedPurchase, SQLitePurchaseLedger
 from document_intake import BETTER_PHOTO
+from sqlite_migrations import REPORT_SCHEMA, active_holds, check_reports, check_version
 
 
 WAIT_SECONDS = 20
@@ -68,38 +70,11 @@ class SQLiteReportStore:
             raise HTTPException(503, "A transactional report storage adapter must be configured.")
         self.ledger = ledger
         with self._connect() as db:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS review_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    purchase_id TEXT NOT NULL REFERENCES purchases(purchase_id),
-                    customer_id TEXT NOT NULL,
-                    tier TEXT NOT NULL,
-                    fingerprint TEXT NOT NULL,
-                    state TEXT NOT NULL CHECK(state IN ('pending','processing','completed','failed')),
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    reservation TEXT,
-                    deadline REAL,
-                    created REAL NOT NULL,
-                    updated REAL NOT NULL,
-                    error_code TEXT,
-                    http_status INTEGER,
-                    retryable INTEGER NOT NULL DEFAULT 0,
-                    result_json TEXT,
-                    report_html TEXT,
-                    notification_name TEXT,
-                    quote_count INTEGER,
-                    delivery_state TEXT NOT NULL DEFAULT 'pending',
-                    delivery_attempts INTEGER NOT NULL DEFAULT 0,
-                    delivery_deadline REAL,
-                    UNIQUE(purchase_id, fingerprint)
-                );
-                CREATE TABLE IF NOT EXISTS review_request_keys (
-                    purchase_id TEXT NOT NULL REFERENCES purchases(purchase_id),
-                    request_key TEXT NOT NULL,
-                    job_id TEXT NOT NULL REFERENCES review_jobs(job_id),
-                    PRIMARY KEY(purchase_id, request_key)
-                );
-            """)
+            if check_version(db) == 0:
+                # Legacy deployments retain their existing initialization path.
+                for statement in REPORT_SCHEMA:
+                    db.execute(statement)
+            check_reports(db)
 
     @contextmanager
     def _connect(self):
@@ -143,38 +118,42 @@ class SQLiteReportStore:
     def create(self, purchase, key, fingerprint):
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            self._expire(db)
-            existing = db.execute("SELECT job_id FROM review_request_keys WHERE purchase_id=? AND request_key=?",
-                                  (purchase.purchase_id, key)).fetchone()
-            if existing:
-                row = self._row(db, existing[0], purchase)
-                if row["fingerprint"] != fingerprint:
-                    raise HTTPException(409, "This submission key belongs to different content. Keep the original key for retries; use a new key for corrected documents.")
-                return row
-            existing = db.execute("SELECT job_id FROM review_jobs WHERE purchase_id=? AND fingerprint=?",
-                                  (purchase.purchase_id, fingerprint)).fetchone()
-            if existing:
-                row = self._row(db, existing[0], purchase)
-            else:
-                entitlement = db.execute("""SELECT used, submission_limit FROM purchases WHERE purchase_id=?
-                    AND customer_id=? AND tier=? AND eligible=1 AND expires_at>?""", (purchase.purchase_id,
-                    purchase.owner_customer_id, purchase.tier, time.time())).fetchone()
-                if not entitlement or entitlement[0] >= entitlement[1]:
-                    raise HTTPException(409, "Purchase entitlement is unavailable or already used.")
-                count = db.execute("SELECT COUNT(*) FROM review_jobs WHERE purchase_id=?", (purchase.purchase_id,)).fetchone()[0]
-                if count >= 20:
-                    raise HTTPException(429, "Submission limit reached. Please contact support.")
-                job_id, now = uuid.uuid4().hex, time.time()
-                db.execute("""INSERT INTO review_jobs (job_id,purchase_id,customer_id,tier,fingerprint,state,created,updated)
-                    VALUES (?,?,?,?,?,'pending',?,?)""", (job_id, purchase.purchase_id,
-                    purchase.owner_customer_id, purchase.tier, fingerprint, now, now))
-                row = self._row(db, job_id, purchase)
-            # Bound alternate keys even when callers replay identical content.
-            count = db.execute("SELECT COUNT(*) FROM review_request_keys WHERE purchase_id=?", (purchase.purchase_id,)).fetchone()[0]
-            if count >= 100:
-                raise HTTPException(429, "Submission key limit reached. Reuse the original key.")
-            db.execute("INSERT INTO review_request_keys VALUES (?,?,?)", (purchase.purchase_id, key, row["job_id"]))
+            return self._create(db, purchase, key, fingerprint)
+
+    def _create(self, db, purchase, key, fingerprint):
+        """Caller owns the transaction, including optional durable-input hold."""
+        self._expire(db)
+        existing = db.execute("SELECT job_id FROM review_request_keys WHERE purchase_id=? AND request_key=?",
+                              (purchase.purchase_id, key)).fetchone()
+        if existing:
+            row = self._row(db, existing[0], purchase)
+            if row["fingerprint"] != fingerprint:
+                raise HTTPException(409, "This submission key belongs to different content. Keep the original key for retries; use a new key for corrected documents.")
             return row
+        existing = db.execute("SELECT job_id FROM review_jobs WHERE purchase_id=? AND fingerprint=?",
+                              (purchase.purchase_id, fingerprint)).fetchone()
+        if existing:
+            row = self._row(db, existing[0], purchase)
+        else:
+            entitlement = db.execute("""SELECT used, submission_limit FROM purchases WHERE purchase_id=?
+                AND customer_id=? AND tier=? AND eligible=1 AND expires_at>?""", (purchase.purchase_id,
+                purchase.owner_customer_id, purchase.tier, time.time())).fetchone()
+            if not entitlement or entitlement[0] + active_holds(db, purchase.purchase_id) >= entitlement[1]:
+                raise HTTPException(409, "Purchase entitlement is unavailable or already used.")
+            count = db.execute("SELECT COUNT(*) FROM review_jobs WHERE purchase_id=?", (purchase.purchase_id,)).fetchone()[0]
+            if count >= 20:
+                raise HTTPException(429, "Submission limit reached. Please contact support.")
+            job_id, now = uuid.uuid4().hex, time.time()
+            db.execute("""INSERT INTO review_jobs (job_id,purchase_id,customer_id,tier,fingerprint,state,created,updated)
+                VALUES (?,?,?,?,?,'pending',?,?)""", (job_id, purchase.purchase_id,
+                purchase.owner_customer_id, purchase.tier, fingerprint, now, now))
+            row = self._row(db, job_id, purchase)
+        # Bound alternate keys even when callers replay identical content.
+        count = db.execute("SELECT COUNT(*) FROM review_request_keys WHERE purchase_id=?", (purchase.purchase_id,)).fetchone()[0]
+        if count >= 100:
+            raise HTTPException(429, "Submission key limit reached. Reuse the original key.")
+        db.execute("INSERT INTO review_request_keys VALUES (?,?,?)", (purchase.purchase_id, key, row["job_id"]))
+        return row
 
     def claim(self, job_id, purchase, retry):
         with self._connect() as db:
@@ -204,6 +183,15 @@ class SQLiteReportStore:
                     raise HTTPException(403, "Purchase entitlement is not eligible.")
                 return row["reservation"]
             submission_id = uuid.uuid4().hex
+            if check_version(db) == 1:
+                hold = db.execute("SELECT state FROM review_holds WHERE job_id=?", (job_id,)).fetchone()
+                if hold:
+                    if hold[0] != 'active':
+                        raise HTTPException(409, "This review hold is no longer active.")
+                    # Remove the hold from available-capacity accounting in the
+                    # SAME transaction that increments usage and links the job.
+                    db.execute("UPDATE review_holds SET state='consumed',updated=? WHERE job_id=?",
+                               (time.time(), job_id))
             self.ledger._reserve(db, purchase, submission_id)
             db.execute("UPDATE review_jobs SET reservation=?,updated=? WHERE job_id=?",
                        (submission_id, time.time(), job_id))

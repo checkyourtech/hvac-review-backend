@@ -28,6 +28,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
+from sqlite_migrations import active_holds, check_version, migrate_stage1
 
 
 TIER_ALIASES = {
@@ -104,6 +105,7 @@ class SQLitePurchaseLedger:
             # Do not repair an empty/wrong database into a fresh entitlement store.
             db.execute("SELECT purchase_id,customer_id,tier,submission_limit,used,expires_at,eligible FROM purchases LIMIT 0")
             db.execute("SELECT submission_id,purchase_id,started_at FROM submissions LIMIT 0")
+            check_version(db)
 
     @classmethod
     def initialize(cls, path: Path):
@@ -134,6 +136,7 @@ class SQLitePurchaseLedger:
                     started_at INTEGER NOT NULL
                 );
             """)
+        migrate_stage1(self)
         return cls(path)
 
     @contextmanager
@@ -149,6 +152,7 @@ class SQLitePurchaseLedger:
         connection = sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True, timeout=5)
         try:
             connection.execute("PRAGMA foreign_keys = ON")
+            check_version(connection, validate_schema=False)
             with connection:
                 yield connection
         finally:
@@ -172,7 +176,7 @@ class SQLitePurchaseLedger:
             eligible = row[5] and purchase.payment_eligible
             db.execute("UPDATE purchases SET expires_at = ?, eligible = ? WHERE purchase_id = ?",
                        (expiry, int(eligible), purchase.purchase_id))
-            remaining = row[2] - row[3]
+            remaining = row[2] - row[3] - active_holds(db, purchase.purchase_id)
         # Commit a cancellation/shortened expiry before rejecting the request.
         # Raising inside the transaction would roll that restriction back.
         if not eligible or expiry <= time.time():
@@ -194,8 +198,9 @@ class SQLitePurchaseLedger:
         """Reserve within the caller transaction, including a durable job transaction."""
         updated = db.execute("""UPDATE purchases SET used = used + 1
             WHERE purchase_id = ? AND customer_id = ? AND tier = ?
-            AND eligible = 1 AND expires_at > ? AND used < submission_limit""",
-            (purchase.purchase_id, purchase.owner_customer_id, purchase.tier, time.time()))
+            AND eligible = 1 AND expires_at > ? AND used + ? < submission_limit""",
+            (purchase.purchase_id, purchase.owner_customer_id, purchase.tier, time.time(),
+             active_holds(db, purchase.purchase_id)))
         if updated.rowcount != 1:
             raise HTTPException(409, "Purchase entitlement is unavailable or already used.")
         db.execute("INSERT INTO submissions VALUES (?, ?, ?)",
