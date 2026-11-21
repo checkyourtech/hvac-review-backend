@@ -1,9 +1,9 @@
-"""Local, offline-tested report recovery adapter; NOT a production worker queue.
+"""Shared durable report/entitlement adapter and legacy submission compatibility.
 
 Uses the same explicit SQLite database as the purchase ledger so reserving a
-review and recording its job are atomic. The current HTTP path still keeps
-in-flight inputs in bounded memory. Stage 1's separate private-input adapter is
-internal only; it does not enable a scheduler or change submission handling.
+review and recording its job are atomic. Compatibility submissions keep inputs
+in bounded memory. Opt-in Stage 2 uses the private-input adapter, managed queue
+claims and fenced completion; this module does not activate that queue itself.
 Deployment storage, process supervision and retention remain unconfigured.
 """
 import asyncio
@@ -42,6 +42,12 @@ ERROR_MESSAGES = {
     "analysis_failed": "The review could not be completed. No incomplete report is available.",
     "interrupted": "Processing was interrupted or exceeded its deadline. Contact support before retrying.",
     "storage_failed": "The completed report could not be saved. Contact support before retrying.",
+    "verification_unavailable": "Purchase verification is temporarily unavailable. Your saved submission is waiting.",
+    "purchase_ineligible": "This purchase is no longer eligible. Contact support.",
+    "queue_wait_expired": "This submission exceeded its queue waiting limit. No review was started. Contact support.",
+    "uncertain_external": "Processing was interrupted and the external request outcome is uncertain. Contact support; it will not be automatically repeated.",
+    "processing_timeout": "The worker exceeded its processing deadline. Contact support before retrying.",
+    "queue_retries_exhausted": "Safe preparation retries were exhausted. Contact support; your inputs remain saved.",
 }
 
 
@@ -91,14 +97,21 @@ class SQLiteReportStore:
             purchase.owner_customer_id, purchase.tier)).fetchone()
         if row is None:
             raise HTTPException(404, "Review not found.")
-        return dict(row)
+        result = dict(row)
+        if check_version(db, validate_schema=False) >= 2:
+            queued = db.execute('SELECT phase,wait_deadline FROM review_queue WHERE job_id=?', (job_id,)).fetchone()
+            if queued:
+                result['_queue'] = dict(queued)
+        return result
 
     def _expire(self, db):
         now = time.time()
         # Never automatically replay a process that may still be calling a provider.
         # The deadline also fences late completions and entitlement consumption.
+        queue_exclusion = (" AND NOT EXISTS (SELECT 1 FROM review_queue q WHERE q.job_id=review_jobs.job_id)"
+                           if check_version(db, validate_schema=False) >= 2 else "")
         db.execute("""UPDATE review_jobs SET state='failed', error_code='interrupted',
-            retryable=0, http_status=503, updated=? WHERE state='processing' AND deadline<=?""", (now, now))
+            retryable=0, http_status=503, updated=? WHERE state='processing' AND deadline<=?""" + queue_exclusion, (now, now))
         db.execute("""UPDATE review_jobs SET delivery_state='unknown', updated=?
             WHERE delivery_state='sending' AND delivery_deadline<=?""", (now, now))
 
@@ -160,6 +173,8 @@ class SQLiteReportStore:
             db.execute("BEGIN IMMEDIATE")
             self._expire(db)
             row = self._row(db, job_id, purchase)
+            if '_queue' in row:
+                return None  # Only the managed queue can claim a durable queue job.
             eligible = row["state"] == "pending" or (retry and row["state"] == "failed" and row["retryable"])
             if not eligible or row["attempts"] >= MAX_ATTEMPTS:
                 return None
@@ -173,6 +188,7 @@ class SQLiteReportStore:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = self._row(db, job_id, purchase)
+            self._queue_fence(db, row, attempt)
             if row["state"] != "processing" or row["attempts"] != attempt or row["deadline"] <= time.time():
                 raise HTTPException(409, "This review attempt is no longer active.")
             if row["reservation"]:
@@ -183,7 +199,7 @@ class SQLiteReportStore:
                     raise HTTPException(403, "Purchase entitlement is not eligible.")
                 return row["reservation"]
             submission_id = uuid.uuid4().hex
-            if check_version(db) == 1:
+            if check_version(db) >= 1:
                 hold = db.execute("SELECT state FROM review_holds WHERE job_id=?", (job_id,)).fetchone()
                 if hold:
                     if hold[0] != 'active':
@@ -199,6 +215,9 @@ class SQLiteReportStore:
 
     def complete(self, job_id, purchase, attempt, result_json, report_html, customer_name, quote_count):
         with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self._row(db, job_id, purchase)
+            self._queue_fence(db, row, attempt)
             updated = db.execute("""UPDATE review_jobs SET state='completed', result_json=?, report_html=?,
                 notification_name=?, quote_count=?, updated=? WHERE job_id=? AND purchase_id=?
                 AND customer_id=? AND state='processing' AND attempts=? AND deadline>?
@@ -206,9 +225,27 @@ class SQLiteReportStore:
                 time.time(), job_id, purchase.purchase_id, purchase.owner_customer_id, attempt, time.time()))
             if updated.rowcount != 1:
                 raise HTTPException(409, "This review attempt cannot publish a report.")
+            if '_queue' in row:
+                db.execute("UPDATE review_queue SET phase='finished' WHERE job_id=?", (job_id,))
+
+    def _queue_fence(self, db, row, attempt):
+        if '_queue' not in row:
+            return
+        claim = getattr(self, '_queue_claim', None)
+        if not claim or claim[0] != row['job_id']:
+            raise HTTPException(409, 'A managed queue claim is required.')
+        active = db.execute("""SELECT 1 FROM review_queue q JOIN queue_owner o ON o.singleton=1
+            WHERE q.job_id=? AND q.owner_token=? AND q.claim_token=? AND o.owner_token=q.owner_token
+            AND q.worker_active=1 AND q.phase='external'""", claim).fetchone()
+        if not active or row['state'] != 'processing' or row['attempts'] != attempt or row['deadline'] <= time.time():
+            raise HTTPException(409, 'This queue attempt is no longer active.')
 
     def fail(self, job_id, purchase, attempt, code, status):
         with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = self._row(db, job_id, purchase)
+            if '_queue' in row:
+                raise HTTPException(409, 'Queue failures require the managed claim owner.')
             db.execute("""UPDATE review_jobs SET state='failed', error_code=?, http_status=?, retryable=?, updated=?
                 WHERE job_id=? AND purchase_id=? AND customer_id=? AND state='processing' AND attempts=?""",
                 (code, status, int(code not in {"interrupted", "storage_failed"} and attempt < MAX_ATTEMPTS),
@@ -254,7 +291,7 @@ class JobPurchase(AuthorizedPurchase):
 
 def public_status(row):
     job_id = row["job_id"]
-    return {
+    result = {
         "job_id": job_id, "state": row["state"], "attempts": row["attempts"],
         "review_reserved": bool(row["reservation"]),
         "retry_allowed": bool(row["state"] == "failed" and row["retryable"] and row["attempts"] < MAX_ATTEMPTS),
@@ -268,6 +305,13 @@ def public_status(row):
         "report_url": f"/jobs/{job_id}/report" if row["state"] == "completed" else None,
         "result_url": f"/jobs/{job_id}/result" if row["state"] == "completed" else None,
     }
+    if '_queue' in row:
+        result['state'] = 'queued' if row['state'] == 'pending' else row['state']
+        result['processing_paused'] = row['_queue']['phase'] == 'paused'
+        result['queue_wait_deadline'] = row['_queue']['wait_deadline']
+        result['external_outcome_uncertain'] = row['_queue']['phase'] == 'uncertain'
+        result['retry_allowed'] = False  # No unattended replay of uncertain work.
+    return result
 
 
 def notify(store, row, purchase, sender, analysis_type, original=None):

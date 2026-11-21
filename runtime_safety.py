@@ -53,7 +53,14 @@ def local_readiness(application):
                 db.execute("SELECT request_key FROM review_request_keys LIMIT 0")
                 db.rollback()
             ready = callable(getattr(service.verifier, "verify", None))
+            if getattr(application.state, 'queue_enabled', False) or getattr(application.state, 'durable_queue', None) is not None:
+                from queue_runtime import installed_queue
+                runtime = installed_queue(application)
+                ready = ready and runtime is not None and runtime.ready
+                if ready:
+                    with runtime.storage._locked():
+                        pass
         except Exception:
-            pass  # Never expose a database path, exception or verifier configuration.
+            ready = False  # Never expose a database path, exception or verifier configuration.
     return JSONResponse({"status": "ready" if ready else "unavailable"},
                         status_code=200 if ready else 503, headers={"Cache-Control": "no-store"})

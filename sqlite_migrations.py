@@ -7,6 +7,7 @@ internal durable-input adapter. Opening a ledger never performs this migration.
 import sqlite3
 
 SCHEMA_VERSION = 1
+QUEUE_SCHEMA_VERSION = 2
 REPORT_SCHEMA = (
     """CREATE TABLE IF NOT EXISTS review_jobs (
         job_id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(purchase_id),
@@ -40,17 +41,34 @@ STAGE1_SCHEMA = (
     "CREATE INDEX review_inputs_created ON review_inputs(created)",
 )
 
+STAGE2_SCHEMA = (
+    """CREATE TABLE queue_owner (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner_token TEXT NOT NULL)""",
+    """CREATE TABLE review_queue (
+        job_id TEXT PRIMARY KEY REFERENCES review_jobs(job_id),
+        phase TEXT NOT NULL CHECK(phase IN ('ready','preparing','external','paused','finished','failed','uncertain')),
+        ready_at REAL NOT NULL, wait_deadline REAL NOT NULL, retry_at REAL NOT NULL DEFAULT 0,
+        owner_token TEXT, claim_token TEXT, worker_active INTEGER NOT NULL DEFAULT 0 CHECK(worker_active IN (0,1)),
+        external_started INTEGER NOT NULL DEFAULT 0 CHECK(external_started IN (0,1)))""",
+    "CREATE INDEX review_queue_ready ON review_queue(phase,retry_at,ready_at)",
+    "CREATE INDEX review_queue_active ON review_queue(worker_active)",
+)
+
 
 def check_version(db, *, require_stage1=False, validate_schema=True):
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (0, SCHEMA_VERSION) or (require_stage1 and version != SCHEMA_VERSION):
+    if version not in (0, SCHEMA_VERSION, QUEUE_SCHEMA_VERSION) or (require_stage1 and version < SCHEMA_VERSION):
         raise sqlite3.OperationalError("Unsupported database schema version")
-    if version == SCHEMA_VERSION and validate_schema:
+    if version >= SCHEMA_VERSION and validate_schema:
         # Missing objects are corruption/configuration errors, never recreated.
         db.execute("SELECT root_id,root_path,created FROM queue_storage LIMIT 0")
         db.execute("SELECT job_id,root_id,bundle_id,manifest_hash,byte_count,quote_count,created FROM review_inputs LIMIT 0")
         db.execute("SELECT job_id,purchase_id,state,created,updated FROM review_holds LIMIT 0")
         check_reports(db)
+        if version >= QUEUE_SCHEMA_VERSION:
+            db.execute("SELECT singleton,owner_token FROM queue_owner LIMIT 0")
+            db.execute("""SELECT job_id,phase,ready_at,wait_deadline,retry_at,owner_token,
+                claim_token,worker_active,external_started FROM review_queue LIMIT 0""")
     return version
 
 
@@ -73,7 +91,7 @@ def migrate_stage1(ledger):
     """Atomic additive migration; no executescript implicit transaction commits."""
     with ledger._connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        if check_version(db) == SCHEMA_VERSION:
+        if check_version(db) >= SCHEMA_VERSION:
             return
         db.execute("SELECT purchase_id,customer_id,tier,submission_limit,used,expires_at,eligible FROM purchases LIMIT 0")
         db.execute("SELECT submission_id,purchase_id,started_at FROM submissions LIMIT 0")
@@ -84,3 +102,15 @@ def migrate_stage1(ledger):
             db.execute(statement)
         db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         check_version(db, require_stage1=True)
+
+
+def migrate_stage2(ledger):
+    """Explicit additive upgrade; existing Stage 1 records are not auto-enqueued."""
+    with ledger._connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if check_version(db, require_stage1=True) == QUEUE_SCHEMA_VERSION:
+            return
+        for statement in STAGE2_SCHEMA:
+            db.execute(statement)
+        db.execute(f'PRAGMA user_version = {QUEUE_SCHEMA_VERSION}')
+        check_version(db)

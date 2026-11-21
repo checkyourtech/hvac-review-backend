@@ -35,6 +35,8 @@ from document_intake import (
 )
 from image_transcription import TranscriptionCache, transcribe_page
 from runtime_safety import ANALYSIS_TIMEOUT, configure_private_logging, local_readiness
+from queue_runtime import installed_queue, queue_lifespan
+from queue_http import enqueue_analysis, enqueue_upload
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
@@ -115,7 +117,7 @@ from evidence_integrity import (
 load_dotenv()
 configure_private_logging()
 
-app = FastAPI(title="HVAC Quote Analyzer")
+app = FastAPI(title="HVAC Quote Analyzer", lifespan=queue_lifespan)
 app.add_middleware(IntakeBodyLimit)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -7479,6 +7481,9 @@ async def submit_analysis(
     request: AnalyzeRequest, http_request: Request,
     authorization: AuthorizedPurchase = Depends(require_purchase),
 ):
+    runtime = installed_queue(http_request.app)
+    if runtime is not None:
+        return await enqueue_analysis(runtime, request, http_request, authorization)
     return await submit_report_job(http_request, authorization,
         report_digest({"kind": "analysis", "request": request.model_dump(mode="json")}),
         lambda grant: analyze_hvac_quote(request, grant), "json")
@@ -7488,6 +7493,9 @@ async def submit_analysis(
 async def submit_upload(
     http_request: Request, authorization: AuthorizedPurchase = Depends(require_purchase),
 ):
+    runtime = installed_queue(http_request.app)
+    if runtime is not None:
+        return await enqueue_upload(runtime, http_request, authorization)
     # Keep input only in bounded memory. A replay request does not repeat decoding
     # or paid transcription. Multipart boundaries are excluded from identity.
     body = bytearray()

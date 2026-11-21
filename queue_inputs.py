@@ -47,7 +47,7 @@ class SQLiteQueuedInputs(SQLiteReportStore):
             if previous:
                 if previous[0] != root_id:
                     raise HTTPException(409, "This review uses a different input store.")
-                return row
+                return self._registered(db, row)
             if row['state'] != 'pending' or row['attempts'] or row['reservation']:
                 raise HTTPException(409, "This review has already been started.")
             eligible = db.execute("""SELECT used,submission_limit FROM purchases WHERE purchase_id=?
@@ -60,7 +60,14 @@ class SQLiteQueuedInputs(SQLiteReportStore):
                        (job_id, root_id, bundle_id, manifest_hash, byte_count, quote_count, now))
             db.execute("INSERT INTO review_holds VALUES (?,?,'active',?,?)",
                        (job_id, purchase.purchase_id, now, now))
-            return row
+            return self._registered(db, row)
+
+    def _registered(self, db, row):
+        """Stage 2 may register readiness inside the same input/hold transaction."""
+        return row
+
+    def _released(self, db, job_id):
+        pass
 
     def inputs(self, authorization, job_id):
         purchase = self.authorize(authorization)
@@ -87,3 +94,4 @@ class SQLiteQueuedInputs(SQLiteReportStore):
                        (time.time(), job_id))
             db.execute("""UPDATE review_jobs SET state='failed',error_code='input_rejected',
                 http_status=422,retryable=0,updated=? WHERE job_id=?""", (time.time(), job_id))
+            self._released(db, job_id)

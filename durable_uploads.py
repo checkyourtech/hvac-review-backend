@@ -1,4 +1,4 @@
-"""Private durable inputs, Stage 1 only. Not connected to customer HTTP routes.
+"""Private durable inputs, reused by the opt-in Stage 2 customer queue.
 
 Provision an explicit persistent directory once, then open it without creation.
 All writers/cleanup use its advisory lock; filesystem finalization precedes the
@@ -222,7 +222,7 @@ class PrivateUploadStore:
             os.fsync(file.fileno())
         budget[0] += len(data)
 
-    def save(self, authorization, key, sources, groups, *, customer_name, customer_email):
+    def save(self, authorization, key, sources, groups, *, customer_name, customer_email, analysis_metadata=None):
         """Validate locally, persist originals, then register hold+job atomically.
 
         Sources are bounded streams. Groups use the existing upload form schema.
@@ -239,6 +239,17 @@ class PrivateUploadStore:
             headers=Headers({'content-type': source.content_type or ''}))) for source in sources]
             + [('quote_groups', json.dumps(groups))])
         ordered = quote_groups(form, QUOTE_LIMITS[authorization.tier])
+        if analysis_metadata is not None:
+            allowed = {'file_names', 'contractor_1_name', 'contractor_2_name', 'contractor_3_name', 'city', 'state', 'project_zip'}
+            if (not isinstance(analysis_metadata, dict) or set(analysis_metadata) != allowed
+                    or not isinstance(analysis_metadata['file_names'], list)
+                    or len(analysis_metadata['file_names']) != len(ordered)
+                    or any(len(group['pages']) != 1 for group in ordered)
+                    or any(value is not None and not isinstance(value, str)
+                           for key, value in analysis_metadata.items() if key != 'file_names')):
+                raise HTTPException(400, 'Invalid analysis metadata.')
+            for filename in analysis_metadata['file_names']:
+                validate_filename(filename)
         with self._locked() as root:
             usage, count = self._usage(root)
             if count >= self.max_bundles:
@@ -249,6 +260,8 @@ class PrivateUploadStore:
             os.mkdir(temporary, 0o700, dir_fd=root)
             directory = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
             manifest = {'version': 1, 'customer_name': name, 'customer_email': email, 'quotes': []}
+            if analysis_metadata is not None:
+                manifest['analysis_metadata'] = analysis_metadata
             seen_images = set()
             deadline = time.monotonic() + 180
             try:
