@@ -33,7 +33,7 @@ class PurchaseSecurityTests(unittest.TestCase):
         self.uploads = self.directory / "uploads"
         self.uploads.mkdir()
         self.db_path = self.directory / "purchases.sqlite3"
-        self.ledger = SQLitePurchaseLedger(self.db_path)
+        self.ledger = SQLitePurchaseLedger.initialize(self.db_path)
         self.purchase = self.make_purchase()
         self.verifier = AsyncMock()
         self.verifier.verify.side_effect = self.verify

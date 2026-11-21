@@ -34,6 +34,7 @@ from document_intake import (
     MAX_PREPARED_BYTES, IMAGE_FORMATS, MAX_UPLOAD_BODY,
 )
 from image_transcription import TranscriptionCache, transcribe_page
+from runtime_safety import ANALYSIS_TIMEOUT, configure_private_logging, local_readiness
 from pricing import (
     MarketPriceStatus, MarketPriceContext, QuotePriceFacts, extract_quote_price_facts,
     evaluate_market_price, customer_pricing_text, PRICING_MARKET_RULES,
@@ -112,6 +113,7 @@ from evidence_integrity import (
 )
 
 load_dotenv()
+configure_private_logging()
 
 app = FastAPI(title="HVAC Quote Analyzer")
 app.add_middleware(IntakeBodyLimit)
@@ -123,8 +125,18 @@ async def invalid_submission(request, exc):
     # Pydantic's default error includes submitted values, potentially file text.
     return JSONResponse(status_code=422, content={"detail": "Invalid submission. Check the required customer and quote fields."})
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=ANALYSIS_TIMEOUT, max_retries=0)
 image_text_cache = TranscriptionCache()
+
+
+@app.get("/health/live", include_in_schema=False)
+async def health_live():
+    return JSONResponse({"status": "alive"}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/health/ready", include_in_schema=False)
+async def health_ready(request: Request):
+    return await run_in_threadpool(local_readiness, request.app)
 
 EMAIL_USER = "reviews@checkyourtechs.com"
 BUSINESS_EMAIL = "reviews@checkyourtechs.com"

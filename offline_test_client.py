@@ -22,7 +22,7 @@ from purchase_security import (
 @contextmanager
 def offline_purchase(tier="tier1"):
     with TemporaryDirectory(prefix="cyt-offline-purchase-") as directory:
-        ledger = SQLitePurchaseLedger(Path(directory) / "purchases.sqlite3")
+        ledger = SQLitePurchaseLedger.initialize(Path(directory) / "purchases.sqlite3")
         purchase = VerifiedPurchase(
             purchase_id="offline-" + uuid.uuid4().hex,
             owner_customer_id="synthetic-owner", authenticated_customer_id="synthetic-owner",

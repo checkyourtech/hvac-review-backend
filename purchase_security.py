@@ -19,7 +19,9 @@ No public provisioning/webhook endpoint, environment bypass, or test mode exists
 from dataclasses import dataclass
 from contextlib import contextmanager
 from pathlib import Path
+import os
 import sqlite3
+import stat
 import time
 from typing import Optional, Protocol
 import uuid
@@ -87,11 +89,34 @@ class SQLitePurchaseLedger:
     checks and updates across threads/processes using this same database file.
     A repeated verified purchase never replenishes usage. Ownership, tier and
     purchased quantity cannot be changed by duplicate/replayed notifications.
+
+    Startup opens an existing private database. Provision a genuinely new ledger
+    once with initialize(); never call it as a fallback when a volume is missing.
     """
     def __init__(self, path: Path):
         self.path = Path(path)
         if not self.path.is_absolute() or not self.path.parent.is_dir():
             raise ValueError("An explicit absolute ledger path with an existing parent is required")
+        public = Path(__file__).resolve().parent / "static"
+        if self.path.resolve() == public or public in self.path.resolve().parents:
+            raise ValueError("The ledger must be outside the public static directory")
+        with self._connect() as db:
+            # Do not repair an empty/wrong database into a fresh entitlement store.
+            db.execute("SELECT purchase_id,customer_id,tier,submission_limit,used,expires_at,eligible FROM purchases LIMIT 0")
+            db.execute("SELECT submission_id,purchase_id,started_at FROM submissions LIMIT 0")
+
+    @classmethod
+    def initialize(cls, path: Path):
+        """Explicit first-time provisioning; exclusive creation, never overwrite."""
+        path = Path(path)
+        public = Path(__file__).resolve().parent / "static"
+        if (not path.is_absolute() or not path.parent.is_dir() or
+                path.resolve() == public or public in path.resolve().parents):
+            raise ValueError("Choose an absolute private database path with an existing parent")
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(descriptor)
+        self = cls.__new__(cls)
+        self.path = path
         with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS purchases (
@@ -109,10 +134,19 @@ class SQLitePurchaseLedger:
                     started_at INTEGER NOT NULL
                 );
             """)
+        return cls(path)
 
     @contextmanager
     def _connect(self):
-        connection = sqlite3.connect(str(self.path), timeout=5)
+        try:
+            info = self.path.lstat()
+        except OSError:
+            raise sqlite3.OperationalError("Private database is unavailable") from None
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or
+                (hasattr(os, "getuid") and info.st_uid != os.getuid())):
+            raise sqlite3.OperationalError("Private database permissions are required")
+        # mode=rw is essential: volume loss must not silently replenish purchases.
+        connection = sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True, timeout=5)
         try:
             connection.execute("PRAGMA foreign_keys = ON")
             with connection:

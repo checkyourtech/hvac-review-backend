@@ -231,7 +231,7 @@ def run_acceptance(main, photos, reader=None):
         app.include_router(main.app.router)
         app.add_middleware(IntakeBodyLimit)
         app.exception_handlers.update(main.app.exception_handlers)
-        ledger = SQLitePurchaseLedger(Path(temp) / "purchases.sqlite3")
+        ledger = SQLitePurchaseLedger.initialize(Path(temp) / "purchases.sqlite3")
         app.state.entitlements = EntitlementService(verifier, ledger)
         cache = TranscriptionCache()
         stack.callback(cache.close)
