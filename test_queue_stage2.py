@@ -29,6 +29,7 @@ from sqlite_migrations import migrate_stage2
 from test_blower_support_normalization import BAD
 from test_blower_live_response import saved_response
 from test_purchase_security import classified
+from offline_queue_diagnostics import QueueDiagnostics
 
 
 class OfflineVerifier:
@@ -53,6 +54,7 @@ class QueueStage2Tests(unittest.TestCase):
     def setUp(self):
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
+        self.diagnostics = QueueDiagnostics(self.stack)
         self.base = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='cyt-stage2-test-'))).resolve()
         self.ledger = SQLitePurchaseLedger.initialize(self.base / 'ledger.sqlite3')
         migrate_stage2(self.ledger)
@@ -89,6 +91,7 @@ class QueueStage2Tests(unittest.TestCase):
             processing_seconds=kwargs.pop('processing_seconds', 30), wait_seconds=kwargs.pop('wait_seconds', 60),
             retry_seconds=kwargs.pop('retry_seconds', 0.05), **kwargs)
         self.runtimes.append(runtime)
+        self.diagnostics.observe(runtime)
         return runtime
 
     def shutdown(self):
@@ -96,6 +99,7 @@ class QueueStage2Tests(unittest.TestCase):
             gate.set()
         for runtime in reversed(self.runtimes):
             self.assertTrue(runtime.stop(timeout=5), 'Synthetic worker did not stop')
+        self.assertEqual(self.diagnostics.guard.call_count, 0, self.diagnostics.snapshot(self.ledger))
 
     async def process(self, manifest, files, grant):
         with self.counter:
@@ -144,7 +148,7 @@ class QueueStage2Tests(unittest.TestCase):
             if predicate():
                 return
             time.sleep(0.01)
-        self.fail('Bounded wait expired')
+        self.fail('Bounded wait expired: ' + repr(self.diagnostics.snapshot(self.ledger)))
 
     def status(self, job_id, index=0):
         return self.client.get('/jobs/' + job_id, headers=self.headers(index))

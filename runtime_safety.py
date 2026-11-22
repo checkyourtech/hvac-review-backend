@@ -9,6 +9,7 @@ import httpx
 from fastapi.responses import JSONResponse
 
 from purchase_security import EntitlementService, SQLitePurchaseLedger
+from sqlite_migrations import require_reconciled
 
 
 # The SDK otherwise retries twice and permits ten minutes per attempt. Keep the
@@ -47,6 +48,7 @@ def local_readiness(application):
             # requests. Never create missing schemas/volumes during a health probe.
             with service.ledger._connect() as db:
                 db.execute("BEGIN IMMEDIATE")
+                require_reconciled(db)
                 db.execute("SELECT used,eligible FROM purchases LIMIT 0")
                 db.execute("SELECT submission_id FROM submissions LIMIT 0")
                 db.execute("SELECT state,result_json,report_html FROM review_jobs LIMIT 0")

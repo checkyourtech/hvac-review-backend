@@ -41,6 +41,7 @@ from document_intake import (IMAGE_FORMATS, MAX_FILE_BYTES, MAX_UPLOAD_BODY,
     validate_customer, validate_filename, validate_text)
 from purchase_security import QUOTE_LIMITS
 from queue_inputs import SQLiteQueuedInputs
+from sqlite_migrations import require_reconciled
 
 _ID = re.compile(r"[0-9a-f]{32}")
 _BUNDLE = re.compile(r"(?:\.tmp-)?[0-9a-f]{32}")
@@ -341,36 +342,41 @@ class PrivateUploadStore:
             raise HTTPException(422, "Saved documents are missing or corrupted. No input can be replayed; submit corrected documents or contact support.") from None
 
     def _load(self, authorization, job_id):
-        record = self.records.inputs(authorization, job_id)
         with self._locked() as root:
-            if record['root_id'] != self.root_id or not _ID.fullmatch(record['bundle_id']):
-                raise OSError("Input reference is invalid")
-            try:
-                directory = os.open(record['bundle_id'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
-            except FileNotFoundError:
-                raise StoredInputError from None
-            try:
-                _private(os.fstat(directory), directory=True)
-                encoded = _read(directory, 'manifest.json', _MANIFEST_LIMIT)
-                if _hash(encoded) != record['manifest_hash']:
-                    raise StoredInputError
-                manifest = json.loads(encoded)
-                files = {}
-                for group in manifest['quotes']:
-                    for item in group:
-                        if not re.fullmatch(r'\d{4}\.bin', item['file']):
-                            raise OSError("Invalid input name")
-                        data = _read(directory, item['file'], MAX_FILE_BYTES)
-                        if len(data) != item['size'] or _hash(data) != item['sha256']:
-                            raise StoredInputError
-                        files[item['file']] = data
-                if sum(map(len, files.values())) != record['byte_count']:
-                    raise StoredInputError
-                return manifest, files
-            except FileNotFoundError:
-                raise StoredInputError from None
-            finally:
-                os.close(directory)
+            # Serialize the retirement check with cleanup's deletion marker.
+            record = self.records.inputs(authorization, job_id)
+            return self._read_bundle(root, record)
+
+    def _read_bundle(self, root, record):
+        """Internal integrity check; caller holds storage lock and validates access."""
+        if record['root_id'] != self.root_id or not _ID.fullmatch(record['bundle_id']):
+            raise OSError("Input reference is invalid")
+        try:
+            directory = os.open(record['bundle_id'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+        except FileNotFoundError:
+            raise StoredInputError from None
+        try:
+            _private(os.fstat(directory), directory=True)
+            encoded = _read(directory, 'manifest.json', _MANIFEST_LIMIT)
+            if _hash(encoded) != record['manifest_hash']:
+                raise StoredInputError
+            manifest = json.loads(encoded)
+            files = {}
+            for group in manifest['quotes']:
+                for item in group:
+                    if not re.fullmatch(r'\d{4}\.bin', item['file']):
+                        raise OSError("Invalid input name")
+                    data = _read(directory, item['file'], MAX_FILE_BYTES)
+                    if len(data) != item['size'] or _hash(data) != item['sha256']:
+                        raise StoredInputError
+                    files[item['file']] = data
+            if sum(map(len, files.values())) != record['byte_count']:
+                raise StoredInputError
+            return manifest, files
+        except FileNotFoundError:
+            raise StoredInputError from None
+        finally:
+            os.close(directory)
 
     def cleanup_orphans(self, *, older_than_seconds=86400):
         """Explicit maintenance only; never removes ANY database-referenced bundle.
@@ -385,6 +391,7 @@ class PrivateUploadStore:
         with self._locked() as root:
             self._usage(root)  # Refuse unexpected/symlinked storage contents.
             with self.records._connect() as db:
+                require_reconciled(db)
                 referenced = {row[0] for row in db.execute('SELECT bundle_id FROM review_inputs WHERE root_id=?', (self.root_id,))}
             for name in os.listdir(root):
                 if not _BUNDLE.fullmatch(name) or name.removeprefix('.tmp-') in referenced:

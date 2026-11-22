@@ -8,6 +8,7 @@ import sqlite3
 
 SCHEMA_VERSION = 1
 QUEUE_SCHEMA_VERSION = 2
+LIFECYCLE_SCHEMA_VERSION = 3
 REPORT_SCHEMA = (
     """CREATE TABLE IF NOT EXISTS review_jobs (
         job_id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL REFERENCES purchases(purchase_id),
@@ -54,10 +55,25 @@ STAGE2_SCHEMA = (
     "CREATE INDEX review_queue_active ON review_queue(worker_active)",
 )
 
+STAGE3_SCHEMA = (
+    'ALTER TABLE review_queue ADD COLUMN completed_at REAL',
+    """UPDATE review_queue SET completed_at=(SELECT updated FROM review_jobs j WHERE j.job_id=review_queue.job_id)
+        WHERE job_id IN (SELECT job_id FROM review_jobs WHERE state='completed')""",
+    """CREATE TABLE input_retention (
+        job_id TEXT PRIMARY KEY REFERENCES review_inputs(job_id),
+        state TEXT NOT NULL CHECK(state IN ('deleting','deleted')),
+        started REAL NOT NULL, deleted REAL)""",
+    """CREATE TABLE restore_control (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        reconciliation_required INTEGER NOT NULL CHECK(reconciliation_required IN (0,1)))""",
+    "INSERT INTO restore_control VALUES (1,0)",
+    "CREATE INDEX review_jobs_retention ON review_jobs(state,updated)",
+)
+
 
 def check_version(db, *, require_stage1=False, validate_schema=True):
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (0, SCHEMA_VERSION, QUEUE_SCHEMA_VERSION) or (require_stage1 and version < SCHEMA_VERSION):
+    if version not in (0, SCHEMA_VERSION, QUEUE_SCHEMA_VERSION, LIFECYCLE_SCHEMA_VERSION) or (require_stage1 and version < SCHEMA_VERSION):
         raise sqlite3.OperationalError("Unsupported database schema version")
     if version >= SCHEMA_VERSION and validate_schema:
         # Missing objects are corruption/configuration errors, never recreated.
@@ -69,6 +85,11 @@ def check_version(db, *, require_stage1=False, validate_schema=True):
             db.execute("SELECT singleton,owner_token FROM queue_owner LIMIT 0")
             db.execute("""SELECT job_id,phase,ready_at,wait_deadline,retry_at,owner_token,
                 claim_token,worker_active,external_started FROM review_queue LIMIT 0""")
+        if version >= LIFECYCLE_SCHEMA_VERSION:
+            db.execute('SELECT completed_at FROM review_queue LIMIT 0')
+            db.execute('SELECT job_id,state,started,deleted FROM input_retention LIMIT 0')
+            if db.execute('SELECT reconciliation_required FROM restore_control WHERE singleton=1').fetchone() is None:
+                raise sqlite3.OperationalError('Missing restore control')
     return version
 
 
@@ -108,9 +129,31 @@ def migrate_stage2(ledger):
     """Explicit additive upgrade; existing Stage 1 records are not auto-enqueued."""
     with ledger._connect() as db:
         db.execute('BEGIN IMMEDIATE')
-        if check_version(db, require_stage1=True) == QUEUE_SCHEMA_VERSION:
+        if check_version(db, require_stage1=True) >= QUEUE_SCHEMA_VERSION:
             return
         for statement in STAGE2_SCHEMA:
             db.execute(statement)
         db.execute(f'PRAGMA user_version = {QUEUE_SCHEMA_VERSION}')
         check_version(db)
+
+
+def migrate_stage3(ledger):
+    """Explicit maintenance upgrade; no retention runs or report expiry enabled."""
+    with ledger._connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        version = check_version(db, require_stage1=True)
+        if version == LIFECYCLE_SCHEMA_VERSION:
+            return
+        if version != QUEUE_SCHEMA_VERSION:
+            raise sqlite3.OperationalError('Stage 2 migration required first')
+        for statement in STAGE3_SCHEMA:
+            db.execute(statement)
+        db.execute(f'PRAGMA user_version = {LIFECYCLE_SCHEMA_VERSION}')
+        check_version(db)
+
+
+def require_reconciled(db):
+    if check_version(db, validate_schema=False) >= LIFECYCLE_SCHEMA_VERSION:
+        row = db.execute('SELECT reconciliation_required FROM restore_control WHERE singleton=1').fetchone()
+        if row is None or row[0]:
+            raise sqlite3.OperationalError('Restored storage requires operator reconciliation')

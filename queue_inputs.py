@@ -73,6 +73,9 @@ class SQLiteQueuedInputs(SQLiteReportStore):
         purchase = self.authorize(authorization)
         with self._connect() as db:
             self._row(db, job_id, purchase)
+            if check_version(db, validate_schema=False) >= 3 and db.execute(
+                    'SELECT 1 FROM input_retention WHERE job_id=?', (job_id,)).fetchone():
+                raise HTTPException(410, 'Source documents have been retired. Saved review status and completed reports remain available.')
             row = db.execute("SELECT * FROM review_inputs WHERE job_id=?", (job_id,)).fetchone()
             if row is None:
                 raise HTTPException(404, "Saved inputs not found.")

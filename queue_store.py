@@ -11,14 +11,14 @@ import sqlite3
 from fastapi import HTTPException
 from queue_inputs import SQLiteQueuedInputs
 from report_jobs import MAX_ATTEMPTS, SQLiteReportStore
-from sqlite_migrations import check_version
+from sqlite_migrations import check_version, require_reconciled
 
 
 class SQLiteReviewQueue(SQLiteQueuedInputs):
     def __init__(self, ledger, *, wait_seconds=86400, processing_seconds=900, retry_seconds=60):
         super().__init__(ledger)
         with self._connect() as db:
-            if check_version(db) != 2:
+            if check_version(db) not in (2, 3):
                 raise HTTPException(503, 'An explicit Stage 2 database migration is required.')
         if min(wait_seconds, processing_seconds, retry_seconds) <= 0:
             raise ValueError('Queue time limits must be positive')
@@ -27,6 +27,7 @@ class SQLiteReviewQueue(SQLiteQueuedInputs):
         self.retry_seconds = retry_seconds
 
     def _registered(self, db, row):
+        require_reconciled(db)
         if db.execute('SELECT 1 FROM review_queue WHERE job_id=?', (row['job_id'],)).fetchone():
             return row
         hold = db.execute("SELECT 1 FROM review_holds WHERE job_id=? AND state='active'", (row['job_id'],)).fetchone()
@@ -46,6 +47,7 @@ class SQLiteReviewQueue(SQLiteQueuedInputs):
         db.execute("UPDATE review_queue SET phase='failed' WHERE job_id=? AND worker_active=0", (job_id,))
 
     def _owner(self, db, owner):
+        require_reconciled(db)
         if not db.execute('SELECT 1 FROM queue_owner WHERE singleton=1 AND owner_token=?', (owner,)).fetchone():
             raise HTTPException(409, 'This scheduler no longer owns the queue.')
 
@@ -64,6 +66,7 @@ class SQLiteReviewQueue(SQLiteQueuedInputs):
         """Only after exclusive OS lock acquisition proves prior workers exited."""
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            require_reconciled(db)
             if db.execute("""SELECT 1 FROM review_jobs j WHERE j.state='processing' AND NOT EXISTS
                 (SELECT 1 FROM review_queue q WHERE q.job_id=j.job_id) LIMIT 1""").fetchone():
                 raise HTTPException(503, 'Legacy processing jobs need reconciliation before enabling the queue.')

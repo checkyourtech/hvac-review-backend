@@ -28,7 +28,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
-from sqlite_migrations import active_holds, check_version, migrate_stage1
+from sqlite_migrations import active_holds, check_version, migrate_stage1, require_reconciled
 
 
 TIER_ALIASES = {
@@ -196,6 +196,7 @@ class SQLitePurchaseLedger:
 
     def _reserve(self, db, purchase, submission_id):
         """Reserve within the caller transaction, including a durable job transaction."""
+        require_reconciled(db)
         updated = db.execute("""UPDATE purchases SET used = used + 1
             WHERE purchase_id = ? AND customer_id = ? AND tier = ?
             AND eligible = 1 AND expires_at > ? AND used + ? < submission_limit""",

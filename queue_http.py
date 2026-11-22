@@ -24,7 +24,15 @@ def _key(request):
 
 def _ack(runtime, authorization, row):
     # Replays must not acknowledge an old missing/corrupted input reference.
-    runtime.storage.load(authorization, row['job_id'])
+    # A deliberate retention tombstone preserves the same job and entitlement.
+    if not row.get('_inputs_retired'):
+        try:
+            runtime.storage.load(authorization, row['job_id'])
+        except HTTPException as error:
+            # Cleanup may have committed after registration but before this read.
+            if error.status_code != 410 or not runtime.records.get(
+                    row['job_id'], authorization.purchase).get('_inputs_retired'):
+                raise
     row = runtime.records.get(row['job_id'], authorization.purchase)
     runtime.wake()
     return JSONResponse(public_status(row), status_code=202, headers={**PRIVATE_HEADERS,

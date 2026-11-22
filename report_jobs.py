@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from purchase_security import AuthorizedPurchase, SQLitePurchaseLedger
 from document_intake import BETTER_PHOTO
-from sqlite_migrations import REPORT_SCHEMA, active_holds, check_reports, check_version
+from sqlite_migrations import REPORT_SCHEMA, active_holds, check_reports, check_version, require_reconciled
 
 
 WAIT_SECONDS = 20
@@ -99,9 +99,18 @@ class SQLiteReportStore:
             raise HTTPException(404, "Review not found.")
         result = dict(row)
         if check_version(db, validate_schema=False) >= 2:
-            queued = db.execute('SELECT phase,wait_deadline FROM review_queue WHERE job_id=?', (job_id,)).fetchone()
+            queued = db.execute('SELECT phase,wait_deadline,ready_at FROM review_queue WHERE job_id=?', (job_id,)).fetchone()
             if queued:
                 result['_queue'] = dict(queued)
+                if row['state'] == 'pending':
+                    result['_queue']['approximate_position'] = 1 + db.execute("""SELECT COUNT(*) FROM review_queue
+                        WHERE phase IN ('ready','paused') AND
+                        (ready_at < ? OR (ready_at = ? AND job_id < ?))""",
+                        (queued['ready_at'], queued['ready_at'], job_id)).fetchone()[0]
+        if check_version(db, validate_schema=False) >= 3:
+            retired = db.execute('SELECT state FROM input_retention WHERE job_id=?', (job_id,)).fetchone()
+            if retired:
+                result['_inputs_retired'] = True
         return result
 
     def _expire(self, db):
@@ -135,6 +144,7 @@ class SQLiteReportStore:
 
     def _create(self, db, purchase, key, fingerprint):
         """Caller owns the transaction, including optional durable-input hold."""
+        require_reconciled(db)
         self._expire(db)
         existing = db.execute("SELECT job_id FROM review_request_keys WHERE purchase_id=? AND request_key=?",
                               (purchase.purchase_id, key)).fetchone()
@@ -171,6 +181,7 @@ class SQLiteReportStore:
     def claim(self, job_id, purchase, retry):
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            require_reconciled(db)
             self._expire(db)
             row = self._row(db, job_id, purchase)
             if '_queue' in row:
@@ -187,6 +198,7 @@ class SQLiteReportStore:
     def consume(self, job_id, purchase, attempt):
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            require_reconciled(db)
             row = self._row(db, job_id, purchase)
             self._queue_fence(db, row, attempt)
             if row["state"] != "processing" or row["attempts"] != attempt or row["deadline"] <= time.time():
@@ -227,6 +239,8 @@ class SQLiteReportStore:
                 raise HTTPException(409, "This review attempt cannot publish a report.")
             if '_queue' in row:
                 db.execute("UPDATE review_queue SET phase='finished' WHERE job_id=?", (job_id,))
+                if check_version(db, validate_schema=False) >= 3:
+                    db.execute('UPDATE review_queue SET completed_at=? WHERE job_id=?', (time.time(), job_id))
 
     def _queue_fence(self, db, row, attempt):
         if '_queue' not in row:
@@ -254,6 +268,7 @@ class SQLiteReportStore:
     def claim_delivery(self, job_id, purchase):
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            require_reconciled(db)
             self._expire(db)
             row = self._row(db, job_id, purchase)
             if row["state"] != "completed":
@@ -293,6 +308,9 @@ def public_status(row):
     job_id = row["job_id"]
     result = {
         "job_id": job_id, "state": row["state"], "attempts": row["attempts"],
+        "created_at": row['created'], "updated_at": row['updated'],
+        "poll_after_seconds": 5,
+        "source_documents_retired": bool(row.get('_inputs_retired')),
         "review_reserved": bool(row["reservation"]),
         "retry_allowed": bool(row["state"] == "failed" and row["retryable"] and row["attempts"] < MAX_ATTEMPTS),
         "error": ({"code": row["error_code"], "message": ERROR_MESSAGES.get(row["error_code"], ERROR_MESSAGES["analysis_failed"])}
@@ -311,6 +329,10 @@ def public_status(row):
         result['queue_wait_deadline'] = row['_queue']['wait_deadline']
         result['external_outcome_uncertain'] = row['_queue']['phase'] == 'uncertain'
         result['retry_allowed'] = False  # No unattended replay of uncertain work.
+        result['automatic_retry_pending'] = result['processing_paused']
+        if 'approximate_position' in row['_queue']:
+            result['approximate_queue_position'] = row['_queue']['approximate_position']
+        result['queue_estimate_notice'] = 'Queue position is approximate. Processing times are not guaranteed.'
     return result
 
 

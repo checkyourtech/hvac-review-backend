@@ -446,7 +446,11 @@ class CommissioningTests(unittest.TestCase):
                 main.client.beta.chat.completions, "parse", return_value=parsed), patch.object(main, "send_review_email") as email:
             response = TestClient(main.app).post("/upload", data={"package":"tier1", "customer_name":"Offline", "customer_email":"offline@example.com"},
                 files={"files": ("commissioning_partial_test.txt", text.encode(), "text/plain")})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, {
+            'status': response.status_code,
+            'error': response.json() if response.status_code >= 400 else None,
+            'retry_after': response.headers.get('Retry-After'),
+        })
         final = email.call_args.kwargs["analysis"]
         self.assertEqual(raw.model_dump(), before)
         self.assertEqual(final.decision.technical_support, "PARTIALLY_SUPPORTED")
