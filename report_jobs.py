@@ -83,9 +83,9 @@ class SQLiteReportStore:
             check_reports(db)
 
     @contextmanager
-    def _connect(self):
+    def _connect(self, *, timeout=5):
         try:
-            with self.ledger._connect() as db:
+            with self.ledger._connect(timeout=timeout) as db:
                 yield db
         except sqlite3.Error:
             raise HTTPException(503, "Report storage is unavailable. Check saved review status before retrying.") from None

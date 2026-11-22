@@ -155,14 +155,14 @@ class PrivateUploadStore:
             os.close(parent)
         return cls(root, ledger, max_bytes=max_bytes, reserve_bytes=reserve_bytes, max_bundles=max_bundles)
 
-    def _binding(self):
-        with self.records._connect() as db:
+    def _binding(self, *, timeout=5):
+        with self.records._connect(timeout=timeout) as db:
             row = db.execute('SELECT root_path FROM queue_storage WHERE root_id=?', (self.root_id,)).fetchone()
             if not row or row[0] != str(self.root):
                 raise OSError("Storage does not belong to this database")
 
     @contextmanager
-    def _locked(self):
+    def _locked(self, *, blocking=True):
         fd = lock = None
         try:
             fd = _directory(self.root)
@@ -173,9 +173,9 @@ class PrivateUploadStore:
             self._identity = identity
             lock = os.open('.lock', os.O_RDWR | os.O_NOFOLLOW, dir_fd=fd)
             _private(os.fstat(lock))
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
             if hasattr(self, 'root_id'):
-                self._binding()
+                self._binding(timeout=5 if blocking else 0.05)
             yield fd
         except (OSError, ValueError, TypeError, KeyError):
             raise HTTPException(503, "Private input storage is unavailable. Check saved submission status before retrying.") from None

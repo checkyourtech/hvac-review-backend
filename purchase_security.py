@@ -140,7 +140,7 @@ class SQLitePurchaseLedger:
         return cls(path)
 
     @contextmanager
-    def _connect(self):
+    def _connect(self, *, timeout=5):
         try:
             info = self.path.lstat()
         except OSError:
@@ -149,7 +149,7 @@ class SQLitePurchaseLedger:
                 (hasattr(os, "getuid") and info.st_uid != os.getuid())):
             raise sqlite3.OperationalError("Private database permissions are required")
         # mode=rw is essential: volume loss must not silently replenish purchases.
-        connection = sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True, timeout=5)
+        connection = sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True, timeout=timeout)
         try:
             connection.execute("PRAGMA foreign_keys = ON")
             check_version(connection, validate_schema=False)

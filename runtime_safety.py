@@ -44,10 +44,11 @@ def local_readiness(application):
     ready = False
     if isinstance(service, EntitlementService) and isinstance(service.ledger, SQLitePurchaseLedger):
         try:
-            # Opening requires private storage; acquire the same write lock as
-            # requests. Never create missing schemas/volumes during a health probe.
-            with service.ledger._connect() as db:
-                db.execute("BEGIN IMMEDIATE")
+            # A readiness read must not compete for the scheduler's writer lock.
+            # Allow at most 50 ms for a brief SQLite commit, never its normal
+            # five-second busy wait. Render restarts use /health/live instead.
+            with service.ledger._connect(timeout=0.05) as db:
+                db.execute("BEGIN")
                 require_reconciled(db)
                 db.execute("SELECT used,eligible FROM purchases LIMIT 0")
                 db.execute("SELECT submission_id FROM submissions LIMIT 0")
@@ -60,7 +61,7 @@ def local_readiness(application):
                 runtime = installed_queue(application)
                 ready = ready and runtime is not None and runtime.ready
                 if ready:
-                    with runtime.storage._locked():
+                    with runtime.storage._locked(blocking=False):
                         pass
         except Exception:
             ready = False  # Never expose a database path, exception or verifier configuration.

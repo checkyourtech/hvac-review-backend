@@ -1,0 +1,33 @@
+{
+  "services": [
+    {
+      "type": "web",
+      "name": "check-your-tech-closed",
+      "runtime": "python",
+      "repo": "https://github.com/checkyourtech/hvac-review-backend",
+      "branch": "structured-verdict-refactor",
+      "region": "oregon",
+      "plan": "standard",
+      "numInstances": 1,
+      "autoDeployTrigger": "off",
+      "maintenanceMode": {"enabled": true},
+      "healthCheckPath": "/health/live",
+      "buildCommand": "python -m pip install --require-hashes -r requirements-build.lock.txt && python -m pip install --no-build-isolation --require-hashes -r requirements.lock.txt && python -m pip check",
+      "startCommand": "sh -c 'umask 077; exec python -m uvicorn deployment_app:create_app --factory --host 0.0.0.0 --port \"$PORT\" --workers 1 --lifespan on --no-access-log --no-proxy-headers --timeout-graceful-shutdown 20'",
+      "disk": {"name": "cyt-private", "mountPath": "/var/data", "sizeGB": 10},
+      "envVars": [
+        {"key": "PYTHON_VERSION", "value": "3.13.18"},
+        {"key": "PYTHONUNBUFFERED", "value": "1"},
+        {"key": "PYTHON_DOTENV_DISABLED", "value": "1"},
+        {"key": "OPENAI_API_KEY", "value": "closed-deployment-placeholder"},
+        {"key": "EMAIL_APP_PASSWORD", "value": ""},
+        {"key": "CYT_DISK_MOUNT", "value": "/var/data"},
+        {"key": "CYT_DATA_DIR", "value": "/var/data/cyt"},
+        {"key": "CYT_INPUT_MAX_BYTES", "value": "3000000000"},
+        {"key": "CYT_FREE_RESERVE_BYTES", "value": "1000000000"},
+        {"key": "CYT_INPUT_MAX_BUNDLES", "value": "10000"},
+        {"key": "CYT_QUEUE_ENABLED", "value": "false"}
+      ]
+    }
+  ]
+}
