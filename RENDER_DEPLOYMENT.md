@@ -109,6 +109,14 @@ locations. Data and ledger must be on the same volume. The private root must be
 service-owned with no group/other access. The adapter checks database ownership,
 private permissions, schema and input-root binding. Documents retain existing
 0400 permissions and hash verification; database/locks use 0600, directories 0700.
+The verified Render mount itself may be root-owned with group `render` and mode
+2775, but only at `/var/data` with real-mount validation enabled. This narrow
+exception requires real/effective application UID and GID 1000, the account and
+group names `render`, and account primary GID 1000. World-write access, other
+group-writable configurations, missing mounts, and a path changing identity or
+permissions during validation are rejected. It does not apply to `/var/data/cyt`
+or any customer file. No environment switch bypasses these checks; do not loosen
+private directory/file permissions to match the parent mount.
 Upload limits do not bound report database growth: monitor disk space, database
 size and backup footprint separately. No automatic deletion is configured.
 

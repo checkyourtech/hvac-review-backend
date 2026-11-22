@@ -6,8 +6,10 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 import shlex
 from unittest.mock import patch
@@ -23,6 +25,130 @@ from queue_maintenance import create_backup, stopped_queue
 from runtime_safety import local_readiness
 from sqlite_migrations import migrate_stage2
 import test_queue_stage2 as stage2
+
+
+class RenderMountPermissionTests(unittest.TestCase):
+    @contextlib.contextmanager
+    def mount(self, *, mode=0o2775, owner=0, group=1000, uid=1000, gid=1000,
+              euid=1000, egid=1000, account='render', primary_group=1000,
+              group_name='render', mounted=True, config=None, changed=None,
+              lookup_error=None):
+        # Model the reported Linux metadata without chown, mounting a volume,
+        # touching /var/data, or initializing any database.
+        info = SimpleNamespace(st_mode=stat.S_IFDIR | mode, st_uid=owner,
+            st_gid=group, st_dev=42, st_ino=99)
+        current = SimpleNamespace(**{**vars(info), **(changed or {})})
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch('deployment_storage._directory', side_effect=[11, 12]))
+            stack.enter_context(patch('deployment_storage.os.fstat', side_effect=[info, current]))
+            stack.enter_context(patch('deployment_storage.os.close'))
+            stack.enter_context(patch('deployment_storage.os.path.ismount', return_value=mounted))
+            for name, value in [('getuid', uid), ('getgid', gid), ('geteuid', euid), ('getegid', egid)]:
+                stack.enter_context(patch('deployment_storage.os.' + name, return_value=value))
+            stack.enter_context(patch('deployment_storage.pwd.getpwuid', side_effect=lookup_error,
+                return_value=SimpleNamespace(pw_name=account, pw_gid=primary_group)))
+            stack.enter_context(patch('deployment_storage.grp.getgrgid',
+                return_value=SimpleNamespace(gr_name=group_name)))
+            yield config or DeploymentConfig()
+
+    def test_verified_render_mount_is_accepted(self):
+        with self.mount() as config:
+            config.check_mount()
+
+    def test_world_writable_mounts_remain_rejected(self):
+        for mode in (0o2777, 0o1777, 0o0777, 0o0702):
+            with self.subTest(mode=oct(mode)), self.mount(mode=mode) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_group_write_exception_requires_exact_render_mode(self):
+        for mode in (0o0775, 0o0770, 0o2770, 0o3775, 0o6775):
+            with self.subTest(mode=oct(mode)), self.mount(mode=mode) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_group_write_requires_root_owner_and_application_group(self):
+        for changes in ({'owner': 1000}, {'owner': 2000}, {'group': 0}, {'group': 2000}):
+            with self.subTest(changes=changes), self.mount(**changes) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_render_account_and_primary_group_must_match(self):
+        for changes in ({'uid': 2000}, {'gid': 2000}, {'euid': 0}, {'egid': 0},
+                        {'account': 'unexpected'}, {'group_name': 'unexpected'}, {'primary_group': 2000}):
+            with self.subTest(changes=changes), self.mount(**changes) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_missing_account_or_group_lookup_fails_closed(self):
+        with self.mount(lookup_error=KeyError('unknown account')) as config:
+            with self.assertRaises(DeploymentError):
+                config.check_mount()
+        with self.mount() as config, patch('deployment_storage.grp.getgrgid', side_effect=KeyError('unknown group')):
+            with self.assertRaises(DeploymentError):
+                config.check_mount()
+
+    def test_exception_does_not_apply_to_other_mount_paths(self):
+        other = DeploymentConfig(disk_mount=Path('/var/other'), data_dir=Path('/var/other/cyt'))
+        with self.mount(config=other) as config:
+            with self.assertRaises(DeploymentError):
+                config.check_mount()
+
+    def test_exception_cannot_bypass_real_mount_requirement(self):
+        for changes in ({'mounted': False}, {'config': DeploymentConfig(require_mount=False)}):
+            with self.subTest(changes=changes), self.mount(**changes) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_mount_identity_or_permissions_changed_during_probe_rejected(self):
+        for changed in ({'st_dev': 43}, {'st_ino': 100}, {'st_uid': 2000},
+                        {'st_gid': 2000}, {'st_mode': stat.S_IFDIR | 0o2777}):
+            with self.subTest(changed=changed), self.mount(changed=changed) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_mount_disappearing_or_becoming_symlink_during_probe_rejected(self):
+        with self.mount() as config, patch('deployment_storage._directory', side_effect=[11, OSError('unavailable')]):
+            with self.assertRaises(OSError):
+                config.check_mount()
+
+    def test_non_group_writable_private_mount_behavior_preserved(self):
+        for changes in ({'mode': 0o0700, 'owner': 1000}, {'mode': 0o0755, 'group': 0}):
+            with self.subTest(changes=changes), self.mount(**changes) as config:
+                config.check_mount()
+
+    def test_unexpected_non_group_writable_mount_owner_or_group_rejected(self):
+        for changes in ({'mode': 0o0755, 'owner': 2000}, {'mode': 0o0755, 'group': 2000}):
+            with self.subTest(changes=changes), self.mount(**changes) as config:
+                with self.assertRaises(DeploymentError):
+                    config.check_mount()
+
+    def test_actual_symlink_missing_mount_and_private_root_permissions(self):
+        with tempfile.TemporaryDirectory(prefix='cyt-mount-permissions-') as directory:
+            base = Path(directory).resolve()
+            mount = base / 'disk'
+            mount.mkdir(mode=0o700)
+            config = DeploymentConfig(disk_mount=mount, data_dir=mount / 'cyt', require_mount=False)
+            config.data_dir.mkdir(mode=0o700)
+            config.check_private_root()
+            config.data_dir.chmod(0o770)
+            with self.assertRaises(OSError):
+                config.check_private_root()
+            alias = base / 'alias'
+            alias.symlink_to(mount, target_is_directory=True)
+            for unsafe in (alias, base / 'missing'):
+                with self.subTest(path=unsafe), self.assertRaises(OSError):
+                    replace(config, disk_mount=unsafe, data_dir=unsafe / 'cyt').check_mount()
+
+    def test_render_mount_exception_never_applies_to_private_data(self):
+        from durable_uploads import _private
+        with patch('durable_uploads.os.getuid', return_value=1000):
+            for directory, mode in ((True, 0o700), (False, 0o600), (False, 0o400)):
+                kind = stat.S_IFDIR if directory else stat.S_IFREG
+                _private(SimpleNamespace(st_mode=kind | mode, st_uid=1000, st_nlink=1), directory=directory)
+                for owner, unsafe_mode in ((0, mode), (1000, mode | 0o070), (0, 0o2775)):
+                    with self.subTest(directory=directory, owner=owner, mode=unsafe_mode), self.assertRaises(OSError):
+                        _private(SimpleNamespace(st_mode=kind | unsafe_mode, st_uid=owner, st_nlink=1), directory=directory)
 
 
 class DeploymentPreparationTests(unittest.TestCase):

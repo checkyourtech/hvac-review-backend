@@ -4,8 +4,11 @@ No dotenv, provider clients, customer documents or credentials are loaded here.
 The operator CLI owns initialization and migrations; HTTP startup only opens.
 """
 from dataclasses import dataclass
+import grp
 import os
 from pathlib import Path
+import pwd
+import stat
 
 from durable_uploads import PrivateUploadStore, _directory, _private
 from purchase_security import SQLitePurchaseLedger
@@ -73,10 +76,41 @@ class DeploymentConfig:
     def check_mount(self):
         fd = _directory(self.disk_mount)  # Reject symlinks throughout the path.
         try:
-            if os.fstat(fd).st_mode & 0o022:
-                raise DeploymentError('The persistent mount must not be writable by other users.')
+            info = os.fstat(fd)
+            if (not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o002
+                    or info.st_uid not in (0, os.getuid())
+                    or info.st_gid not in (0, os.getgid())):
+                raise DeploymentError('Unsafe persistent mount ownership or permissions.')
+            if info.st_mode & 0o020:
+                # Render's verified mount is root:render 2775, not a private
+                # customer directory. This exception never applies to cyt/,
+                # input files, another path, or the synthetic mount bypass.
+                render_mount = (self.require_mount and self.disk_mount == Path('/var/data')
+                    and info.st_uid == 0 and info.st_gid == 1000
+                    and stat.S_IMODE(info.st_mode) == 0o2775
+                    and os.getuid() == os.geteuid() == 1000
+                    and os.getgid() == os.getegid() == 1000)
+                if render_mount:
+                    try:
+                        account, group = pwd.getpwuid(1000), grp.getgrgid(1000)
+                        render_mount = (account.pw_name == group.gr_name == 'render'
+                            and account.pw_gid == 1000)
+                    except KeyError:
+                        render_mount = False
+                if not render_mount:
+                    raise DeploymentError('The persistent mount must not be writable by other users.')
             if self.require_mount and not os.path.ismount(self.disk_mount):
                 raise DeploymentError('The configured persistent disk is not mounted.')
+            # Check the same directory was inspected by the path-based mount
+            # probe. Re-walk without symlinks; do not accept a substituted path.
+            current = _directory(self.disk_mount)
+            try:
+                now = os.fstat(current)
+                if ((info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode)
+                        != (now.st_dev, now.st_ino, now.st_uid, now.st_gid, now.st_mode)):
+                    raise DeploymentError('The persistent mount changed during validation.')
+            finally:
+                os.close(current)
         finally:
             os.close(fd)
 
