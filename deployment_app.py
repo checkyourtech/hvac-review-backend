@@ -1,8 +1,8 @@
 """Closed Render entry point: uvicorn deployment_app:create_app --factory.
 
-No environment value installs a verifier. A future reviewed integration must
-supply a trusted verifier object to create_app; there is no test-proof bypass or
-dynamic module loader. Merely setting CYT_QUEUE_ENABLED=true fails closed.
+The queue remains off by default. Explicit queue enablement additionally requires
+complete Wix verification configuration (or trusted test injection), private
+storage and startup checks. No dynamic module loader or test-proof bypass.
 """
 import os
 
@@ -12,10 +12,17 @@ from deployment_storage import DeploymentConfig, DeploymentError, open_storage
 from purchase_security import EntitlementService
 from queue_http import process_saved_submission
 from queue_runtime import QueueRuntime, queue_lifespan
+from wix_purchase import WixConfig, WixPurchaseVerifier, WixUnavailable
+from wix_handoff import install_wix_handoff
 
 
 def create_app(config=None, *, verifier=None, processor=process_saved_submission):
     config = config or DeploymentConfig.from_env()
+    if config.queue_enabled and verifier is None:
+        try:
+            verifier = WixPurchaseVerifier(WixConfig.from_env())
+        except WixUnavailable:
+            raise DeploymentError('Trusted Wix purchase configuration is incomplete; paid access remains closed.') from None
     if verifier is not None and not config.queue_enabled:
         # Never accidentally enable the non-durable legacy submission path.
         raise DeploymentError('Purchase access requires the approved durable queue configuration.')
@@ -50,4 +57,6 @@ def create_app(config=None, *, verifier=None, processor=process_saved_submission
         application.state.entitlements = EntitlementService(verifier, ledger)
         application.state.report_store = reports
         application.state.durable_queue = QueueRuntime(storage, verifier, processor, deployment_confirmed=True)
+        if isinstance(verifier, WixPurchaseVerifier):
+            install_wix_handoff(application, verifier)
     return application
